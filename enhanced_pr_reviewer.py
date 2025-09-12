@@ -205,7 +205,7 @@ DIFF PATCH:
 {patch}
 ```
 
-Focus on these added lines and provide specific feedback:
+Focus on these added lines:
 {chr(10).join([f"Line {line['new_line']}: {line['content']}" for line in added_lines[:10]])}
 
 Provide analysis in this JSON format:
@@ -213,38 +213,26 @@ Provide analysis in this JSON format:
   "comments": [
     {{
       "line": <line_number>,
-      "severity": "critical|high|medium|low|suggestion",
-      "type": "security|bug|performance|style|maintainability|suggestion",
-      "message": "Brief description of the issue",
-      "suggestion": "Specific code improvement or fix",
-      "suggested_code": "EXACT code replacement for this line only"
+      "message": "Brief, clear description of the issue (like GitHub Copilot)",
+      "suggested_code": "EXACT single line replacement"
     }}
-  ],
-  "general_feedback": "Overall assessment"
+  ]
 }}
 
-IMPORTANT RULES:
-1. For "suggested_code", provide ONLY the exact replacement for that specific line
-2. Do NOT include surrounding context - just the fixed line
-3. Remove any leading/trailing whitespace that's not part of the code
-4. Focus on actionable improvements that can be applied as GitHub suggestions
-5. Make suggestions that preserve the original line's purpose but fix issues
+RULES:
+1. Write messages like GitHub Copilot - simple and direct
+2. For "suggested_code", provide ONLY the exact replacement for that line
+3. Focus on real issues: security, bugs, important style problems
+4. Skip minor issues - only flag meaningful problems
+5. Keep messages short and clear
 
-Examples:
-- If line is: "password = "hardcoded123""
-- suggested_code should be: "password = os.environ.get('PASSWORD')"
+Example good messages:
+- "This test comment should be removed before merging to production as it appears to be temporary debugging or testing code that doesn't add value to the codebase."
+- "The comment lacks proper spacing. It should be '# For test' with a space after the hash symbol to follow Python commenting conventions."
+- "Use environment variables instead of hardcoded passwords."
+- "Add error handling to prevent division by zero."
 
-- If line is: "return a / b"  
-- suggested_code should be: "return a / b if b != 0 else 0"
-
-Focus on:
-- Security vulnerabilities in new code
-- Logic errors and potential bugs  
-- Performance issues
-- Code quality and best practices
-- Maintainability concerns
-
-Only comment on actual issues. Don't provide feedback on good code."""
+Only comment on actual problems that need fixing."""
         
         return prompt
 
@@ -280,7 +268,7 @@ Only comment on actual issues. Don't provide feedback on good code."""
             return ""
 
     def parse_ai_analysis_for_comments(self, analysis: str, filename: str, added_lines: List[Dict]) -> List[Dict]:
-        """Parse AI analysis response and create GitHub review comments with suggestions."""
+        """Parse AI analysis response and create simple GitHub review comments like Copilot."""
         comments = []
         
         try:
@@ -301,10 +289,7 @@ Only comment on actual issues. Don't provide feedback on good code."""
             
             for comment_data in data.get('comments', []):
                 line_num = comment_data.get('line')
-                severity = comment_data.get('severity', 'medium')
-                issue_type = comment_data.get('type', 'general')
                 message = comment_data.get('message', '')
-                suggestion = comment_data.get('suggestion', '')
                 suggested_code = comment_data.get('suggested_code', '')
                 
                 # Find the corresponding line in our diff
@@ -315,31 +300,19 @@ Only comment on actual issues. Don't provide feedback on good code."""
                         break
                 
                 if matching_line:
-                    # Create severity emoji
-                    severity_emoji = {
-                        'critical': '🔴',
-                        'high': '🟠',
-                        'medium': '🟡',
-                        'low': '🔵',
-                        'suggestion': '💡'
-                    }.get(severity, '💬')
-                    
-                    # Create comment body with GitHub suggested changes format
-                    comment_body = f"{severity_emoji} **{severity.upper()} - {issue_type.upper()}**\n\n{message}"
-                    
-                    if suggestion:
-                        comment_body += f"\n\n**💡 Suggestion:** {suggestion}"
+                    # Create simple comment like GitHub Copilot (from your image)
+                    comment_body = message
                     
                     # Add GitHub's suggested changes format if we have suggested code
                     if suggested_code:
-                        comment_body += f"\n\n**🔧 Suggested change:**\n```suggestion\n{suggested_code}\n```"
+                        comment_body += f"\n\n**Suggested change**\n```suggestion\n{suggested_code}\n```"
                     
                     comments.append({
                         'filename': filename,
                         'line': line_num,
                         'body': comment_body,
-                        'severity': severity,
-                        'type': issue_type,
+                        'severity': comment_data.get('severity', 'suggestion'),
+                        'type': comment_data.get('type', 'general'),
                         'suggested_code': suggested_code,
                         'original_code': matching_line['content']
                     })
@@ -383,13 +356,13 @@ Only comment on actual issues. Don't provide feedback on good code."""
         return 'text'
 
     def post_review_comments(self, pr_info: Dict, comments: List[Dict]) -> bool:
-        """Post inline review comments to GitHub PR."""
+        """Post inline review comments to GitHub PR - NO SUMMARY, only inline suggestions."""
         if not self.github_token:
             print("⚠️ No GitHub token available. Cannot post comments.")
             return False
         
         if not comments:
-            print("ℹ️ No comments to post.")
+            print("ℹ️ No issues found. No comments to post.")
             return True
         
         try:
@@ -401,7 +374,7 @@ Only comment on actual issues. Don't provide feedback on good code."""
             pr_data = response.json()
             commit_sha = pr_data['head']['sha']
             
-            # Create a review with all comments
+            # Create a review with ONLY inline comments (no summary)
             review_url = f"{pr_info['api_url']}/reviews"
             
             # Format comments for GitHub review API
@@ -413,45 +386,17 @@ Only comment on actual issues. Don't provide feedback on good code."""
                     'body': comment['body']
                 })
             
-            # Create review body
-            summary_stats = {}
-            for comment in comments:
-                severity = comment['severity']
-                summary_stats[severity] = summary_stats.get(severity, 0) + 1
-            
-            review_body = "## 🤖 AI Code Review Summary\n\n"
-            if summary_stats:
-                review_body += "**Issues found:**\n"
-                for severity, count in summary_stats.items():
-                    emoji = {'critical': '🔴', 'high': '🟠', 'medium': '🟡', 'low': '🔵', 'suggestion': '💡'}.get(severity, '💬')
-                    review_body += f"- {emoji} {severity.title()}: {count}\n"
-            
-            review_body += f"\n**Total issues:** {len(comments)}\n\n"
-            review_body += "Review each inline comment for details and suggestions.\n\n"
-            review_body += "---\n*Powered by AWS Bedrock AI* ⚡"
-            
-            # Determine review event based on severity
-            has_critical = any(c['severity'] == 'critical' for c in comments)
-            has_high = any(c['severity'] == 'high' for c in comments)
-            
-            if has_critical:
-                event = "REQUEST_CHANGES"
-            elif has_high:
-                event = "REQUEST_CHANGES"
-            else:
-                event = "COMMENT"
-            
+            # NO SUMMARY - just post the inline comments
             review_data = {
                 'commit_id': commit_sha,
-                'body': review_body,
-                'event': event,
+                'event': 'COMMENT',  # Always use COMMENT to avoid blocking PRs
                 'comments': review_comments
             }
             
             response = requests.post(review_url, headers=headers, json=review_data, timeout=30)
             response.raise_for_status()
             
-            print(f"✅ Posted {len(comments)} inline comments as review")
+            print(f"✅ Posted {len(comments)} inline suggestions (no summary)")
             return True
             
         except Exception as e:
@@ -517,23 +462,17 @@ Only comment on actual issues. Don't provide feedback on good code."""
         return success
 
     def post_approval_comment(self, pr_info: Dict):
-        """Post an approval comment when no issues are found."""
+        """Post a simple inline comment when no issues are found - NO SUMMARY."""
         try:
             headers = self.get_github_headers()
             comment_url = f"https://api.github.com/repos/{pr_info['full_name']}/issues/{pr_info['pr_number']}/comments"
             
-            comment_body = """## 🤖 AI Code Review Result
-
-✅ **No issues found!** 
-
-The AI reviewer didn't detect any obvious problems in the changed code. The changes look good to merge.
-
----
-*Powered by AWS Bedrock AI* ⚡"""
+            # Simple, short approval message
+            comment_body = "✅ No issues found! Code looks good to merge."
             
             response = requests.post(comment_url, headers=headers, json={'body': comment_body}, timeout=30)
             response.raise_for_status()
-            print("✅ Posted approval comment")
+            print("✅ Posted simple approval comment")
             
         except Exception as e:
             print(f"⚠️ Error posting approval comment: {e}")

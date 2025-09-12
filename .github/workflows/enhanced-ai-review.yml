@@ -146,37 +146,28 @@ jobs:
         ADDED LINES TO REVIEW:
         {lines_text}
 
-        Provide ONLY critical issues as JSON:
+        Provide analysis as JSON:
         {{
           "comments": [
             {{
               "line": <line_number>,
-              "severity": "critical|high|medium|suggestion",
-              "type": "security|bug|performance|style",
-              "message": "Brief issue description",
-              "suggestion": "How to fix it",
+              "message": "Brief, clear description like GitHub Copilot",
               "suggested_code": "EXACT single line replacement"
             }}
           ]
         }}
 
-        IMPORTANT: For "suggested_code", provide ONLY the exact replacement for that specific line.
-        Do NOT include surrounding context - just the fixed line.
+        RULES:
+        1. Write simple, clear messages like GitHub Copilot
+        2. For "suggested_code", provide ONLY the exact replacement line
+        3. Focus on real issues: security, bugs, important style problems
+        4. Skip minor issues - only flag meaningful problems
 
-        Examples:
-        - If line is: password = "hardcoded123"
-        - suggested_code: password = os.environ.get('PASSWORD')
+        Example messages:
+        - "This test comment should be removed before merging to production as it appears to be temporary debugging or testing code that doesn't add value to the codebase."
+        - "The comment lacks proper spacing. It should be '# For test' with a space after the hash symbol to follow Python commenting conventions."
 
-        - If line is: return a / b
-        - suggested_code: return a / b if b != 0 else 0
-
-        Focus ONLY on:
-        - Security vulnerabilities
-        - Logic errors and bugs
-        - Performance issues
-        - Critical style problems
-
-        Skip minor style issues. Only flag real problems."""
+        Only comment on actual problems that need fixing."""
                 
                 try:
                     body = {
@@ -201,7 +192,7 @@ jobs:
                     return []
 
             def parse_ai_response(self, response: str, filename: str, added_lines: List[Dict]) -> List[Dict]:
-                """Parse AI response and create review comments with GitHub suggestions."""
+                """Parse AI response and create simple review comments like GitHub Copilot."""
                 comments = []
                 
                 try:
@@ -217,41 +208,25 @@ jobs:
                     
                     for comment_data in data.get('comments', []):
                         line_num = comment_data.get('line')
-                        severity = comment_data.get('severity', 'medium')
+                        message = comment_data.get('message', '')
+                        suggested_code = comment_data.get('suggested_code', '')
                         
                         # Find matching line in our added lines
                         matching_line = next((line for line in added_lines if line['line_number'] == line_num), None)
                         
                         if matching_line:
-                            # Create severity emoji and comment
-                            severity_emoji = {
-                                'critical': '🔴',
-                                'high': '🟠', 
-                                'medium': '🟡',
-                                'low': '🔵',
-                                'suggestion': '💡'
-                            }.get(severity, '💬')
-                            
-                            issue_type = comment_data.get('type', 'general').upper()
-                            message = comment_data.get('message', '')
-                            suggestion = comment_data.get('suggestion', '')
-                            suggested_code = comment_data.get('suggested_code', '')
-                            
-                            # Build comment body with GitHub suggestion format
-                            comment_body = f"{severity_emoji} **{severity.upper()} - {issue_type}**\\n\\n{message}"
-                            
-                            if suggestion:
-                                comment_body += f"\\n\\n**💡 Suggestion:** {suggestion}"
+                            # Build simple comment body like GitHub Copilot
+                            comment_body = message
                             
                             # Use GitHub's suggestion format for commit suggestions
                             if suggested_code:
-                                comment_body += f"\\n\\n**🔧 Suggested change:**\\n```suggestion\\n{suggested_code}\\n```"
+                                comment_body += f"\\n\\n**Suggested change**\\n```suggestion\\n{suggested_code}\\n```"
                             
                             comments.append({
                                 'path': filename,
                                 'line': line_num,
                                 'body': comment_body,
-                                'severity': severity
+                                'severity': 'suggestion'
                             })
                 
                 except Exception as e:
@@ -260,58 +235,28 @@ jobs:
                 return comments
 
             def post_review_with_comments(self, repo: str, pr_number: int, commit_sha: str, all_comments: List[Dict]):
-                """Post a review with inline comments."""
+                """Post a review with ONLY inline comments - no summary."""
                 try:
                     url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
                     
-                    # Create summary
                     if not all_comments:
-                        # No issues found
-                        review_data = {
-                            'commit_id': commit_sha,
-                            'body': """## 🤖 AI Code Review Result
-
-        ✅ **No issues found!**
-
-        The AI reviewer analyzed your code changes and didn't detect any obvious problems. The changes look good to merge! 🎉
-
-        ---
-        *Powered by AWS Bedrock AI* ⚡""",
-                            'event': 'COMMENT'
-                        }
+                        # No issues found - post simple comment
+                        comment_url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+                        simple_comment = {"body": "✅ No issues found! Code looks good to merge."}
+                        requests.post(comment_url, headers=self.headers, json=simple_comment, timeout=30)
+                        print("✅ Posted simple approval")
                     else:
-                        # Issues found - create summary
-                        severity_counts = {}
-                        for comment in all_comments:
-                            sev = comment['severity']
-                            severity_counts[sev] = severity_counts.get(sev, 0) + 1
-                        
-                        summary = "## 🤖 AI Code Review Summary\\n\\n**Issues found:**\\n"
-                        for severity, count in severity_counts.items():
-                            emoji = {'critical': '🔴', 'high': '🟠', 'medium': '🟡', 'low': '🔵', 'suggestion': '💡'}.get(severity, '💬')
-                            summary += f"- {emoji} {severity.title()}: {count}\\n"
-                        
-                        summary += f"\\n**Total issues:** {len(all_comments)}\\n\\n"
-                        summary += "Please review the inline comments for detailed feedback and suggestions.\\n\\n"
-                        summary += "---\\n*Powered by AWS Bedrock AI* ⚡"
-                        
-                        # Determine review event
-                        has_critical = any(c['severity'] == 'critical' for c in all_comments)
-                        has_high = any(c['severity'] == 'high' for c in all_comments)
-                        
-                        event = "REQUEST_CHANGES" if (has_critical or has_high) else "COMMENT"
-                        
+                        # Post ONLY inline comments without any summary
                         review_data = {
                             'commit_id': commit_sha,
-                            'body': summary,
-                            'event': event,
+                            'event': 'COMMENT',  # Always use COMMENT
                             'comments': all_comments
                         }
-                    
-                    response = requests.post(url, headers=self.headers, json=review_data, timeout=30)
-                    response.raise_for_status()
-                    
-                    print(f"✅ Posted review with {len(all_comments)} inline comments")
+                        
+                        response = requests.post(url, headers=self.headers, json=review_data, timeout=30)
+                        response.raise_for_status()
+                        
+                        print(f"✅ Posted {len(all_comments)} inline suggestions only")
                     
                 except Exception as e:
                     print(f"❌ Error posting review: {e}")
