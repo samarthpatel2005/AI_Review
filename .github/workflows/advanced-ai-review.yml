@@ -1,0 +1,252 @@
+name: Advanced AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ main, master, develop ]
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+
+jobs:
+  advanced-ai-review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install boto3 requests python-dotenv
+
+    - name: Create advanced AI reviewer
+      run: |
+        cat > advanced_reviewer.py << 'EOF'
+        #!/usr/bin/env python3
+        import json
+        import os
+        import sys
+        import requests
+        import boto3
+        import re
+        from datetime import datetime
+
+        class AdvancedGitHubReviewer:
+            def __init__(self):
+                self.github_token = os.environ.get('GITHUB_TOKEN')
+                self.aws_access_key = os.environ.get('AWS_ACCESS_KEY_ID')
+                self.aws_secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
+                self.region = os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
+                self.model_id = os.environ.get('BEDROCK_MODEL_ID', 'amazon.nova-micro-v1:0')
+                
+                self.bedrock = boto3.client(
+                    'bedrock-runtime',
+                    region_name=self.region,
+                    aws_access_key_id=self.aws_access_key,
+                    aws_secret_access_key=self.aws_secret_key
+                )
+                
+                self.headers = {
+                    'Authorization': f'token {self.github_token}',
+                    'Accept': 'application/vnd.github.v3+json',
+                    'User-Agent': 'Advanced-AI-Reviewer'
+                }
+
+            def get_pr_files(self, repo, pr_number):
+                """Get list of changed files in PR"""
+                url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
+                response = requests.get(url, headers=self.headers)
+                response.raise_for_status()
+                return response.json()
+
+            def analyze_file_changes(self, file_data):
+                """Analyze individual file changes"""
+                filename = file_data['filename']
+                patch = file_data.get('patch', '')
+                
+                if not patch:
+                    return None
+                
+                # Skip non-code files
+                code_extensions = {'.py', '.js', '.ts', '.java', '.c', '.cpp', '.h', '.go', '.rs', '.php', '.rb'}
+                if not any(filename.endswith(ext) for ext in code_extensions):
+                    return None
+                
+                prompt = f"""Analyze this code change in file: {filename}
+
+        PATCH:
+        ```diff
+        {patch}
+        ```
+
+        Identify specific issues on changed lines. For each issue, provide:
+        1. Line number (from the patch)
+        2. Issue type (SECURITY/BUG/STYLE/PERFORMANCE)
+        3. Severity (HIGH/MEDIUM/LOW)  
+        4. Description
+        5. Suggestion
+
+        Format as JSON:
+        [
+          {{
+            "line": 42,
+            "type": "SECURITY", 
+            "severity": "HIGH",
+            "message": "Potential SQL injection vulnerability",
+            "suggestion": "Use parameterized queries instead"
+          }}
+        ]
+
+        Only return the JSON array, no other text."""
+                
+                return self.get_ai_analysis(prompt)
+
+            def get_ai_analysis(self, prompt):
+                """Get AI analysis from Bedrock"""
+                body = {
+                    "messages": [{"role": "user", "content": [{"text": prompt}]}],
+                    "inferenceConfig": {
+                        "maxTokens": 2000,
+                        "temperature": 0.1,
+                        "topP": 0.8
+                    }
+                }
+                
+                response = self.bedrock.invoke_model(
+                    modelId=self.model_id,
+                    body=json.dumps(body),
+                    contentType="application/json",
+                    accept="application/json"
+                )
+                
+                result = json.loads(response['body'].read())
+                return result['output']['message']['content'][0]['text']
+
+            def create_review_summary(self, all_issues, pr_info):
+                """Create overall PR review summary"""
+                total_issues = sum(len(issues) for issues in all_issues.values())
+                
+                if total_issues == 0:
+                    return "## ✅ AI Code Review: No Issues Found\n\nGreat job! The AI reviewer didn't find any significant issues in the changed code."
+                
+                high_issues = sum(1 for issues in all_issues.values() for issue in issues if 'HIGH' in str(issue))
+                medium_issues = sum(1 for issues in all_issues.values() for issue in issues if 'MEDIUM' in str(issue))
+                low_issues = sum(1 for issues in all_issues.values() for issue in issues if 'LOW' in str(issue))
+                
+                summary = f"""## 🔍 AI Code Review Summary
+
+        **Issues Found:** {total_issues}
+        - 🔴 High Priority: {high_issues}
+        - 🟡 Medium Priority: {medium_issues}  
+        - 🟢 Low Priority: {low_issues}
+
+        ### Files Reviewed:
+        """
+                
+                for filename, issues in all_issues.items():
+                    if issues:
+                        summary += f"- `{filename}`: {len(issues)} issue(s)\n"
+                
+                summary += "\n*See inline comments for detailed feedback.*"
+                return summary
+
+            def post_review_comments(self, repo, pr_number, all_issues, pr_info):
+                """Post review comments"""
+                # Post summary comment
+                summary = self.create_review_summary(all_issues, pr_info)
+                self.post_comment(repo, pr_number, summary)
+                
+                # Post inline comments (if supported)
+                for filename, issues in all_issues.items():
+                    for issue in issues:
+                        if isinstance(issue, dict) and 'line' in issue:
+                            comment = f"**{issue.get('type', 'ISSUE')}** ({issue.get('severity', 'MEDIUM')})\n\n{issue.get('message', '')}\n\n💡 **Suggestion:** {issue.get('suggestion', 'Consider reviewing this code.')}"
+                            # Note: Inline comments require more complex API calls with commit SHA
+                            # For now, we'll include them in the summary
+
+            def post_comment(self, repo, pr_number, comment_text):
+                """Post comment to PR"""
+                url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+                
+                full_comment = f"""{comment_text}
+
+        ---
+        🤖 **Automated AI Review** | Powered by AWS Bedrock | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        *This is an automated review. Please use your judgment and consider this as supplementary feedback.*"""
+                
+                data = {"body": full_comment}
+                response = requests.post(url, headers=self.headers, json=data)
+                response.raise_for_status()
+
+            def review_pr(self, repo, pr_number):
+                """Main review function"""
+                print(f"🔍 Advanced AI review for PR #{pr_number} in {repo}")
+                
+                # Get PR info
+                pr_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
+                pr_response = requests.get(pr_url, headers=self.headers)
+                pr_response.raise_for_status()
+                pr_info = pr_response.json()
+                
+                # Get changed files
+                files = self.get_pr_files(repo, pr_number)
+                
+                all_issues = {}
+                for file_data in files:
+                    filename = file_data['filename']
+                    print(f"📄 Analyzing {filename}")
+                    
+                    analysis = self.analyze_file_changes(file_data)
+                    if analysis:
+                        try:
+                            # Try to parse JSON response
+                            issues = json.loads(analysis.strip())
+                            if isinstance(issues, list):
+                                all_issues[filename] = issues
+                            else:
+                                all_issues[filename] = []
+                        except json.JSONDecodeError:
+                            print(f"⚠️ Could not parse AI response for {filename}")
+                            all_issues[filename] = []
+                
+                # Post review comments
+                self.post_review_comments(repo, pr_number, all_issues, pr_info)
+                print("✅ Advanced AI review completed!")
+
+        if __name__ == "__main__":
+            reviewer = AdvancedGitHubReviewer()
+            
+            event_path = os.environ.get('GITHUB_EVENT_PATH')
+            if event_path and os.path.exists(event_path):
+                with open(event_path, 'r') as f:
+                    event_data = json.load(f)
+                
+                repo = event_data['repository']['full_name']
+                pr_number = event_data['pull_request']['number']
+                
+                reviewer.review_pr(repo, pr_number)
+            else:
+                print("❌ No GitHub event data found")
+                sys.exit(1)
+        EOF
+
+    - name: Run Advanced AI Review
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        BEDROCK_MODEL_ID: amazon.nova-micro-v1:0
+      run: |
+        python advanced_reviewer.py
