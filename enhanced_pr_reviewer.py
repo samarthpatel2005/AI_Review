@@ -217,15 +217,29 @@ Provide analysis in this JSON format:
       "type": "security|bug|performance|style|maintainability|suggestion",
       "message": "Brief description of the issue",
       "suggestion": "Specific code improvement or fix",
-      "suggested_code": "Optional: exact code replacement"
+      "suggested_code": "EXACT code replacement for this line only"
     }}
   ],
   "general_feedback": "Overall assessment"
 }}
 
+IMPORTANT RULES:
+1. For "suggested_code", provide ONLY the exact replacement for that specific line
+2. Do NOT include surrounding context - just the fixed line
+3. Remove any leading/trailing whitespace that's not part of the code
+4. Focus on actionable improvements that can be applied as GitHub suggestions
+5. Make suggestions that preserve the original line's purpose but fix issues
+
+Examples:
+- If line is: "password = "hardcoded123""
+- suggested_code should be: "password = os.environ.get('PASSWORD')"
+
+- If line is: "return a / b"  
+- suggested_code should be: "return a / b if b != 0 else 0"
+
 Focus on:
 - Security vulnerabilities in new code
-- Logic errors and potential bugs
+- Logic errors and potential bugs  
 - Performance issues
 - Code quality and best practices
 - Maintainability concerns
@@ -266,7 +280,7 @@ Only comment on actual issues. Don't provide feedback on good code."""
             return ""
 
     def parse_ai_analysis_for_comments(self, analysis: str, filename: str, added_lines: List[Dict]) -> List[Dict]:
-        """Parse AI analysis response and create GitHub review comments."""
+        """Parse AI analysis response and create GitHub review comments with suggestions."""
         comments = []
         
         try:
@@ -310,14 +324,15 @@ Only comment on actual issues. Don't provide feedback on good code."""
                         'suggestion': '💡'
                     }.get(severity, '💬')
                     
-                    # Create comment body
+                    # Create comment body with GitHub suggested changes format
                     comment_body = f"{severity_emoji} **{severity.upper()} - {issue_type.upper()}**\n\n{message}"
                     
                     if suggestion:
-                        comment_body += f"\n\n**Suggestion:** {suggestion}"
+                        comment_body += f"\n\n**💡 Suggestion:** {suggestion}"
                     
+                    # Add GitHub's suggested changes format if we have suggested code
                     if suggested_code:
-                        comment_body += f"\n\n**Suggested change:**\n```{self.get_file_language(filename)}\n{suggested_code}\n```"
+                        comment_body += f"\n\n**🔧 Suggested change:**\n```suggestion\n{suggested_code}\n```"
                     
                     comments.append({
                         'filename': filename,
@@ -325,7 +340,8 @@ Only comment on actual issues. Don't provide feedback on good code."""
                         'body': comment_body,
                         'severity': severity,
                         'type': issue_type,
-                        'suggested_code': suggested_code
+                        'suggested_code': suggested_code,
+                        'original_code': matching_line['content']
                     })
         
         except json.JSONDecodeError as e:

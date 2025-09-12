@@ -155,10 +155,20 @@ jobs:
               "type": "security|bug|performance|style",
               "message": "Brief issue description",
               "suggestion": "How to fix it",
-              "suggested_code": "Exact code replacement (optional)"
+              "suggested_code": "EXACT single line replacement"
             }}
           ]
         }}
+
+        IMPORTANT: For "suggested_code", provide ONLY the exact replacement for that specific line.
+        Do NOT include surrounding context - just the fixed line.
+
+        Examples:
+        - If line is: password = "hardcoded123"
+        - suggested_code: password = os.environ.get('PASSWORD')
+
+        - If line is: return a / b
+        - suggested_code: return a / b if b != 0 else 0
 
         Focus ONLY on:
         - Security vulnerabilities
@@ -191,7 +201,7 @@ jobs:
                     return []
 
             def parse_ai_response(self, response: str, filename: str, added_lines: List[Dict]) -> List[Dict]:
-                """Parse AI response and create review comments."""
+                """Parse AI response and create review comments with GitHub suggestions."""
                 comments = []
                 
                 try:
@@ -227,15 +237,15 @@ jobs:
                             suggestion = comment_data.get('suggestion', '')
                             suggested_code = comment_data.get('suggested_code', '')
                             
-                            # Build comment body
+                            # Build comment body with GitHub suggestion format
                             comment_body = f"{severity_emoji} **{severity.upper()} - {issue_type}**\\n\\n{message}"
                             
                             if suggestion:
                                 comment_body += f"\\n\\n**💡 Suggestion:** {suggestion}"
                             
+                            # Use GitHub's suggestion format for commit suggestions
                             if suggested_code:
-                                file_ext = filename.split('.')[-1] if '.' in filename else 'text'
-                                comment_body += f"\\n\\n**🔧 Suggested fix:**\\n```{file_ext}\\n{suggested_code}\\n```"
+                                comment_body += f"\\n\\n**🔧 Suggested change:**\\n```suggestion\\n{suggested_code}\\n```"
                             
                             comments.append({
                                 'path': filename,
