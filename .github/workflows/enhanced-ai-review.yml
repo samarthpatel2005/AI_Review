@@ -157,17 +157,25 @@ jobs:
           ]
         }}
 
+        SPECIFIC ISSUES TO CHECK:
+        1. **Comment formatting**: Comments like "#For test" should be "# For test" (space after #)
+        2. **Test/debug comments**: Comments like "# hello test" or "# test" should be removed in production
+        3. **Hardcoded credentials**: Any passwords, API keys, or secrets in code
+        4. **Missing error handling**: Division by zero, null checks, etc.
+        5. **Security issues**: SQL injection, command injection, etc.
+
         RULES:
         1. Write simple, clear messages like GitHub Copilot
         2. For "suggested_code", provide ONLY the exact replacement line
-        3. Focus on real issues: security, bugs, important style problems
-        4. Skip minor issues - only flag meaningful problems
+        3. ALWAYS flag comment formatting issues (missing space after #)
+        4. ALWAYS flag test/debug comments that should be removed
+        5. Keep messages short and clear
 
-        Example messages:
-        - "This test comment should be removed before merging to production as it appears to be temporary debugging or testing code that doesn't add value to the codebase."
-        - "The comment lacks proper spacing. It should be '# For test' with a space after the hash symbol to follow Python commenting conventions."
+        Example responses:
+        - For "#For test" → message: "The comment lacks proper spacing. It should be '# For test' with a space after the hash symbol to follow Python commenting conventions.", suggested_code: "# For test"
+        - For "# hello test" → message: "This test comment should be removed before merging to production as it appears to be temporary debugging or testing code.", suggested_code: ""
 
-        Only comment on actual problems that need fixing."""
+        Focus on real issues that developers should fix before merging."""
                 
                 try:
                     body = {
@@ -265,40 +273,56 @@ jobs:
                 """Main review function."""
                 print(f"🔍 Starting enhanced review of PR #{pr_number} in {repo}")
                 
-                # Get PR info for commit SHA
-                pr_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
-                pr_response = requests.get(pr_url, headers=self.headers)
-                pr_response.raise_for_status()
-                pr_data = pr_response.json()
-                commit_sha = pr_data['head']['sha']
-                
-                # Get changed files
-                files = self.get_pr_files(repo, pr_number)
-                
-                if not files:
-                    print("ℹ️ No code files to review")
-                    return
-                
-                print(f"📁 Analyzing {len(files)} code files...")
-                
-                # Analyze all files
-                all_comments = []
-                for file_data in files:
-                    filename = file_data['filename']
-                    patch = file_data['patch']
+                try:
+                    # Get PR info for commit SHA
+                    pr_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
+                    pr_response = requests.get(pr_url, headers=self.headers)
+                    pr_response.raise_for_status()
+                    pr_data = pr_response.json()
+                    commit_sha = pr_data['head']['sha']
                     
-                    if patch.strip():
-                        print(f"🔍 Reviewing {filename}...")
-                        file_comments = self.analyze_file_with_ai(filename, patch)
-                        all_comments.extend(file_comments)
-                
-                # Post review
-                self.post_review_with_comments(repo, pr_number, commit_sha, all_comments)
-                
-                if all_comments:
-                    print(f"📝 Found {len(all_comments)} issues to review")
-                else:
-                    print("✅ No issues found - code looks good!")
+                    print(f"📊 PR info: {pr_data['title']}")
+                    print(f"📊 Commit SHA: {commit_sha}")
+                    
+                    # Get changed files
+                    files = self.get_pr_files(repo, pr_number)
+                    
+                    if not files:
+                        print("ℹ️ No code files to review")
+                        return
+                    
+                    print(f"📁 Analyzing {len(files)} code files...")
+                    for file_data in files:
+                        print(f"  - {file_data['filename']} ({file_data['additions']} additions)")
+                    
+                    # Analyze all files
+                    all_comments = []
+                    for file_data in files:
+                        filename = file_data['filename']
+                        patch = file_data['patch']
+                        
+                        if patch.strip():
+                            print(f"🔍 Reviewing {filename}...")
+                            print(f"📝 Patch preview: {patch[:200]}...")
+                            
+                            file_comments = self.analyze_file_with_ai(filename, patch)
+                            print(f"💬 Generated {len(file_comments)} comments for {filename}")
+                            all_comments.extend(file_comments)
+                    
+                    # Post review
+                    print(f"📤 Posting {len(all_comments)} total comments...")
+                    self.post_review_with_comments(repo, pr_number, commit_sha, all_comments)
+                    
+                    if all_comments:
+                        print(f"📝 Found {len(all_comments)} issues to review")
+                    else:
+                        print("✅ No issues found - code looks good!")
+                        
+                except Exception as e:
+                    print(f"❌ Error in review_pr: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    raise
 
         if __name__ == "__main__":
             try:
@@ -322,6 +346,15 @@ jobs:
                 print(f"❌ Review failed: {e}")
                 sys.exit(1)
         EOF
+
+    - name: Debug GitHub Event
+      run: |
+        echo "=== GitHub Event Debug ==="
+        echo "Event name: ${{ github.event_name }}"
+        echo "Action: ${{ github.event.action }}"
+        echo "PR number: ${{ github.event.pull_request.number }}"
+        echo "Repository: ${{ github.repository }}"
+        echo "==========================="
 
     - name: Run Enhanced AI Code Review
       env:

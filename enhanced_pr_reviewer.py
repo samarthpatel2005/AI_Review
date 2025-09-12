@@ -219,20 +219,26 @@ Provide analysis in this JSON format:
   ]
 }}
 
+SPECIFIC ISSUES TO CHECK:
+1. **Comment formatting**: Comments like "#For test" should be "# For test" (space after #)
+2. **Test/debug comments**: Comments like "# hello test" or "# test" should be removed in production
+3. **Hardcoded credentials**: Any passwords, API keys, or secrets in code
+4. **Missing error handling**: Division by zero, null checks, etc.
+5. **Security issues**: SQL injection, command injection, etc.
+
 RULES:
 1. Write messages like GitHub Copilot - simple and direct
 2. For "suggested_code", provide ONLY the exact replacement for that line
-3. Focus on real issues: security, bugs, important style problems
-4. Skip minor issues - only flag meaningful problems
+3. ALWAYS flag comment formatting issues (missing space after #)
+4. ALWAYS flag test/debug comments that should be removed
 5. Keep messages short and clear
 
-Example good messages:
-- "This test comment should be removed before merging to production as it appears to be temporary debugging or testing code that doesn't add value to the codebase."
-- "The comment lacks proper spacing. It should be '# For test' with a space after the hash symbol to follow Python commenting conventions."
-- "Use environment variables instead of hardcoded passwords."
-- "Add error handling to prevent division by zero."
+Example responses:
+- For "#For test" → message: "The comment lacks proper spacing. It should be '# For test' with a space after the hash symbol to follow Python commenting conventions.", suggested_code: "# For test"
+- For "# hello test" → message: "This test comment should be removed before merging to production as it appears to be temporary debugging or testing code that doesn't add value to the codebase.", suggested_code: ""
+- For "password = 'secret123'" → message: "Use environment variables instead of hardcoded passwords.", suggested_code: "password = os.environ.get('PASSWORD')"
 
-Only comment on actual problems that need fixing."""
+Focus on real issues that developers should fix before merging."""
         
         return prompt
 
