@@ -202,6 +202,32 @@ jobs:
                     else:
                         overview.append(f"• **Changed** `{filename}`")
                 
+                # Add code changes diff view
+                overview.extend(["", "### Code Changes"])
+                
+                for file_data in files_data:
+                    filename = file_data.get('filename', '')
+                    patch = file_data.get('patch', '')
+                    
+                    if not patch:
+                        continue
+                    
+                    overview.append(f"")
+                    overview.append(f"**{filename}**")
+                    overview.append("```diff")
+                    
+                    # Parse and display the diff
+                    lines = patch.split('\n')
+                    for line in lines:
+                        if line.startswith('@@'):
+                            continue  # Skip hunk headers
+                        elif line.startswith('+++') or line.startswith('---'):
+                            continue  # Skip file headers
+                        elif line.startswith('+') or line.startswith('-') or line.startswith(' '):
+                            overview.append(line)
+                    
+                    overview.append("```")
+                
                 # Add tip at the bottom (like Copilot)
                 overview.extend([
                     "",
