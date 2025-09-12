@@ -93,36 +93,7 @@ jobs:
                 if not self.bedrock:
                     return []
                 
-                prompt = f'''Analyze this code change in file: {filename}
-
-        DIFF PATCH:
-        ```diff
-        {patch_content}
-        ```
-
-        Provide analysis in JSON format focusing on:
-        1. Comment formatting issues (missing space after # in Python)
-        2. Test/debug comments that should be removed
-        3. Security issues (hardcoded credentials, etc.)
-        4. Code quality issues
-
-        Format:
-        {{
-          "comments": [
-            {{
-              "line": <line_number>,
-              "message": "Brief description like GitHub Copilot",
-              "type": "suggestion|warning|error",
-              "suggested_code": "exact replacement line or empty string to remove"
-            }}
-          ]
-        }}
-
-        Rules:
-        - Flag comments like "#test" or "#hello test" - should be removed
-        - Flag comments missing space after # like "#For test" → "# For test"  
-        - Keep messages short and actionable
-        - Only include real issues'''
+                prompt = f"Analyze this diff for issues in NEW lines (+ prefix): {patch_content}. Look for test comments like '# hello test', '# test', missing spaces after #, hardcoded secrets. Return JSON with comments array containing line, message, type, suggested_code fields. For test comments suggest removal with empty suggested_code."
 
                 try:
                     body = {
@@ -202,6 +173,32 @@ jobs:
                     else:
                         overview.append(f"• **Changed** `{filename}`")
                 
+                # Add code changes diff view
+                overview.extend(["", "### Code Changes"])
+                
+                for file_data in files_data:
+                    filename = file_data.get('filename', '')
+                    patch = file_data.get('patch', '')
+                    
+                    if not patch:
+                        continue
+                    
+                    overview.append(f"")
+                    overview.append(f"**{filename}**")
+                    overview.append("```diff")
+                    
+                    # Parse and display the diff
+                    lines = patch.split('\n')
+                    for line in lines:
+                        if line.startswith('@@'):
+                            continue  # Skip hunk headers
+                        elif line.startswith('+++') or line.startswith('---'):
+                            continue  # Skip file headers
+                        elif line.startswith('+') or line.startswith('-') or line.startswith(' '):
+                            overview.append(line)
+                    
+                    overview.append("```")
+                
                 # Add tip at the bottom (like Copilot)
                 overview.extend([
                     "",
@@ -233,15 +230,6 @@ jobs:
                 
                 return added_lines
 
-            def detect_test_comments_manually(self, added_lines, filename):
-                """Manually detect common test comment patterns as fallback"""
-                manual_comments = []
-                
-                # Common test comment patterns to detect
-                test_patterns = [
-                    r'#\s*(hello\s*test|test\s*hello)',
-                    r'#\s*test\s*
-
             def create_inline_review(self, pr_data, files_data):
                 """Create inline review comments like Copilot"""
                 headers = self.get_headers()
@@ -265,6 +253,11 @@ jobs:
                     
                     # Get AI analysis
                     ai_comments = self.analyze_code_with_ai(patch, filename)
+                    print(f"🔍 AI found {len(ai_comments)} issues in {filename}")
+                    
+                    # Debug: Print AI comments
+                    for i, comment in enumerate(ai_comments):
+                        print(f"  Issue {i+1}: Line {comment.get('line')}, Message: {comment.get('message')}")
                     
                     # Create review comments
                     for ai_comment in ai_comments:
@@ -276,696 +269,28 @@ jobs:
                         # Find matching line in our parsed diff
                         matching_line = next((l for l in added_lines if l['line'] == line_num), None)
                         
-                        if matching_line:
-                            comment_body = message
-                            
-                            # Add suggested change if provided
-                            if suggested_code:
-                                if suggested_code.strip():
-                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n{suggested_code}\n```"
-                                else:
-                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n\n```"
-                            
-                            review_comments.append({
-                                'path': filename,
-                                'line': line_num,
-                                'body': comment_body
-                            })
-                
-                # Post review if we have comments
-                if review_comments:
-                    review_url = f"https://api.github.com/repos/{self.repo}/pulls/{self.pr_number}/reviews"
-                    
-                    review_data = {
-                        'commit_id': commit_sha,
-                        'event': 'COMMENT',
-                        'comments': review_comments
-                    }
-                    
-                    response = requests.post(review_url, headers=headers, json=review_data)
-                    if response.status_code == 200:
-                        print(f"✅ Posted {len(review_comments)} inline suggestions")
-                    else:
-                        print(f"⚠️ Failed to post inline comments: {response.status_code}")
-                else:
-                    print("ℹ️ No issues found - code looks good!")
-
-            def run(self):
-                """Main execution"""
-                print("🤖 Enhanced AI PR Review (Copilot Style)")
-                print("=" * 50)
-                
-                # Validate environment
-                if not all([self.github_token, self.repo, self.pr_number]):
-                    print("❌ Missing required environment variables")
-                    return False
-                
-                try:
-                    # Get PR data
-                    pr_data, files_data = self.get_pr_data()
-                    print(f"📋 Analyzing PR #{self.pr_number} with {len(files_data)} files")
-                    
-                    # Create and post overview comment
-                    overview = self.create_pr_overview(pr_data, files_data)
-                    
-                    comment_url = f"https://api.github.com/repos/{self.repo}/issues/{self.pr_number}/comments"
-                    response = requests.post(
-                        comment_url,
-                        headers=self.get_headers(),
-                        json={'body': overview}
-                    )
-                    
-                    if response.status_code == 201:
-                        print("✅ Posted PR overview comment")
-                    else:
-                        print(f"⚠️ Failed to post overview: {response.status_code}")
-                    
-                    # Create inline review comments
-                    self.create_inline_review(pr_data, files_data)
-                    
-                    print("🎉 Enhanced PR review completed!")
-                    return True
-                    
-                except Exception as e:
-                    print(f"❌ Error: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    return False
-
-        # Run the reviewer
-        if __name__ == "__main__":
-            reviewer = CopilotStyleReviewer()
-            success = reviewer.run()
-            sys.exit(0 if success else 1)
-        SCRIPT
-
-    - name: Run Enhanced PR Review
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
-      run: |
-        python enhanced_pr_reviewer.py,
-                    r'#\s*testing\s*
-
-            def create_inline_review(self, pr_data, files_data):
-                """Create inline review comments like Copilot"""
-                headers = self.get_headers()
-                commit_sha = pr_data['head']['sha']
-                
-                review_comments = []
-                
-                # Analyze each file
-                for file_data in files_data:
-                    filename = file_data.get('filename', '')
-                    patch = file_data.get('patch', '')
-                    
-                    if not patch or not any(filename.endswith(ext) for ext in ['.py', '.js', '.ts', '.java', '.go']):
-                        continue
-                    
-                    # Parse diff for line numbers
-                    added_lines = self.parse_diff_for_line_numbers(patch)
-                    
-                    if not added_lines:
-                        continue
-                    
-                    # Get AI analysis
-                    ai_comments = self.analyze_code_with_ai(patch, filename)
-                    
-                    # Create review comments
-                    for ai_comment in ai_comments:
-                        line_num = ai_comment.get('line')
-                        message = ai_comment.get('message', '')
-                        suggested_code = ai_comment.get('suggested_code', '')
-                        comment_type = ai_comment.get('type', 'suggestion')
-                        
-                        # Find matching line in our parsed diff
-                        matching_line = next((l for l in added_lines if l['line'] == line_num), None)
+                        print(f"  🔗 Looking for line {line_num}, found: {matching_line is not None}")
+                        if not matching_line:
+                            print(f"  📍 Available lines: {[l['line'] for l in added_lines]}")
                         
                         if matching_line:
-                            comment_body = message
+                            # Create comment with appropriate icon based on type
+                            if comment_type == 'error':
+                                comment_body = f"🚨 **Error:** {message}"
+                            elif comment_type == 'warning':
+                                comment_body = f"⚠️ **Warning:** {message}"
+                            else:
+                                comment_body = f"💡 **Suggestion:** {message}"
                             
-                            # Add suggested change if provided
-                            if suggested_code:
+                            # Add suggested change with proper formatting
+                            if suggested_code is not None:
                                 if suggested_code.strip():
-                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n{suggested_code}\n```"
+                                    # Replace with new code
+                                    comment_body += f"\n\n```suggestion\n{suggested_code}\n```"
                                 else:
-                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n\n```"
-                            
-                            review_comments.append({
-                                'path': filename,
-                                'line': line_num,
-                                'body': comment_body
-                            })
-                
-                # Post review if we have comments
-                if review_comments:
-                    review_url = f"https://api.github.com/repos/{self.repo}/pulls/{self.pr_number}/reviews"
-                    
-                    review_data = {
-                        'commit_id': commit_sha,
-                        'event': 'COMMENT',
-                        'comments': review_comments
-                    }
-                    
-                    response = requests.post(review_url, headers=headers, json=review_data)
-                    if response.status_code == 200:
-                        print(f"✅ Posted {len(review_comments)} inline suggestions")
-                    else:
-                        print(f"⚠️ Failed to post inline comments: {response.status_code}")
-                else:
-                    print("ℹ️ No issues found - code looks good!")
-
-            def run(self):
-                """Main execution"""
-                print("🤖 Enhanced AI PR Review (Copilot Style)")
-                print("=" * 50)
-                
-                # Validate environment
-                if not all([self.github_token, self.repo, self.pr_number]):
-                    print("❌ Missing required environment variables")
-                    return False
-                
-                try:
-                    # Get PR data
-                    pr_data, files_data = self.get_pr_data()
-                    print(f"📋 Analyzing PR #{self.pr_number} with {len(files_data)} files")
-                    
-                    # Create and post overview comment
-                    overview = self.create_pr_overview(pr_data, files_data)
-                    
-                    comment_url = f"https://api.github.com/repos/{self.repo}/issues/{self.pr_number}/comments"
-                    response = requests.post(
-                        comment_url,
-                        headers=self.get_headers(),
-                        json={'body': overview}
-                    )
-                    
-                    if response.status_code == 201:
-                        print("✅ Posted PR overview comment")
-                    else:
-                        print(f"⚠️ Failed to post overview: {response.status_code}")
-                    
-                    # Create inline review comments
-                    self.create_inline_review(pr_data, files_data)
-                    
-                    print("🎉 Enhanced PR review completed!")
-                    return True
-                    
-                except Exception as e:
-                    print(f"❌ Error: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    return False
-
-        # Run the reviewer
-        if __name__ == "__main__":
-            reviewer = CopilotStyleReviewer()
-            success = reviewer.run()
-            sys.exit(0 if success else 1)
-        SCRIPT
-
-    - name: Run Enhanced PR Review
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
-      run: |
-        python enhanced_pr_reviewer.py, 
-                    r'#\s*debug\s*
-
-            def create_inline_review(self, pr_data, files_data):
-                """Create inline review comments like Copilot"""
-                headers = self.get_headers()
-                commit_sha = pr_data['head']['sha']
-                
-                review_comments = []
-                
-                # Analyze each file
-                for file_data in files_data:
-                    filename = file_data.get('filename', '')
-                    patch = file_data.get('patch', '')
-                    
-                    if not patch or not any(filename.endswith(ext) for ext in ['.py', '.js', '.ts', '.java', '.go']):
-                        continue
-                    
-                    # Parse diff for line numbers
-                    added_lines = self.parse_diff_for_line_numbers(patch)
-                    
-                    if not added_lines:
-                        continue
-                    
-                    # Get AI analysis
-                    ai_comments = self.analyze_code_with_ai(patch, filename)
-                    
-                    # Create review comments
-                    for ai_comment in ai_comments:
-                        line_num = ai_comment.get('line')
-                        message = ai_comment.get('message', '')
-                        suggested_code = ai_comment.get('suggested_code', '')
-                        comment_type = ai_comment.get('type', 'suggestion')
-                        
-                        # Find matching line in our parsed diff
-                        matching_line = next((l for l in added_lines if l['line'] == line_num), None)
-                        
-                        if matching_line:
-                            comment_body = message
-                            
-                            # Add suggested change if provided
-                            if suggested_code:
-                                if suggested_code.strip():
-                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n{suggested_code}\n```"
-                                else:
-                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n\n```"
-                            
-                            review_comments.append({
-                                'path': filename,
-                                'line': line_num,
-                                'body': comment_body
-                            })
-                
-                # Post review if we have comments
-                if review_comments:
-                    review_url = f"https://api.github.com/repos/{self.repo}/pulls/{self.pr_number}/reviews"
-                    
-                    review_data = {
-                        'commit_id': commit_sha,
-                        'event': 'COMMENT',
-                        'comments': review_comments
-                    }
-                    
-                    response = requests.post(review_url, headers=headers, json=review_data)
-                    if response.status_code == 200:
-                        print(f"✅ Posted {len(review_comments)} inline suggestions")
-                    else:
-                        print(f"⚠️ Failed to post inline comments: {response.status_code}")
-                else:
-                    print("ℹ️ No issues found - code looks good!")
-
-            def run(self):
-                """Main execution"""
-                print("🤖 Enhanced AI PR Review (Copilot Style)")
-                print("=" * 50)
-                
-                # Validate environment
-                if not all([self.github_token, self.repo, self.pr_number]):
-                    print("❌ Missing required environment variables")
-                    return False
-                
-                try:
-                    # Get PR data
-                    pr_data, files_data = self.get_pr_data()
-                    print(f"📋 Analyzing PR #{self.pr_number} with {len(files_data)} files")
-                    
-                    # Create and post overview comment
-                    overview = self.create_pr_overview(pr_data, files_data)
-                    
-                    comment_url = f"https://api.github.com/repos/{self.repo}/issues/{self.pr_number}/comments"
-                    response = requests.post(
-                        comment_url,
-                        headers=self.get_headers(),
-                        json={'body': overview}
-                    )
-                    
-                    if response.status_code == 201:
-                        print("✅ Posted PR overview comment")
-                    else:
-                        print(f"⚠️ Failed to post overview: {response.status_code}")
-                    
-                    # Create inline review comments
-                    self.create_inline_review(pr_data, files_data)
-                    
-                    print("🎉 Enhanced PR review completed!")
-                    return True
-                    
-                except Exception as e:
-                    print(f"❌ Error: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    return False
-
-        # Run the reviewer
-        if __name__ == "__main__":
-            reviewer = CopilotStyleReviewer()
-            success = reviewer.run()
-            sys.exit(0 if success else 1)
-        SCRIPT
-
-    - name: Run Enhanced PR Review
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
-      run: |
-        python enhanced_pr_reviewer.py,
-                    r'#\s*temp\s*
-
-            def create_inline_review(self, pr_data, files_data):
-                """Create inline review comments like Copilot"""
-                headers = self.get_headers()
-                commit_sha = pr_data['head']['sha']
-                
-                review_comments = []
-                
-                # Analyze each file
-                for file_data in files_data:
-                    filename = file_data.get('filename', '')
-                    patch = file_data.get('patch', '')
-                    
-                    if not patch or not any(filename.endswith(ext) for ext in ['.py', '.js', '.ts', '.java', '.go']):
-                        continue
-                    
-                    # Parse diff for line numbers
-                    added_lines = self.parse_diff_for_line_numbers(patch)
-                    
-                    if not added_lines:
-                        continue
-                    
-                    # Get AI analysis
-                    ai_comments = self.analyze_code_with_ai(patch, filename)
-                    
-                    # Create review comments
-                    for ai_comment in ai_comments:
-                        line_num = ai_comment.get('line')
-                        message = ai_comment.get('message', '')
-                        suggested_code = ai_comment.get('suggested_code', '')
-                        comment_type = ai_comment.get('type', 'suggestion')
-                        
-                        # Find matching line in our parsed diff
-                        matching_line = next((l for l in added_lines if l['line'] == line_num), None)
-                        
-                        if matching_line:
-                            comment_body = message
-                            
-                            # Add suggested change if provided
-                            if suggested_code:
-                                if suggested_code.strip():
-                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n{suggested_code}\n```"
-                                else:
-                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n\n```"
-                            
-                            review_comments.append({
-                                'path': filename,
-                                'line': line_num,
-                                'body': comment_body
-                            })
-                
-                # Post review if we have comments
-                if review_comments:
-                    review_url = f"https://api.github.com/repos/{self.repo}/pulls/{self.pr_number}/reviews"
-                    
-                    review_data = {
-                        'commit_id': commit_sha,
-                        'event': 'COMMENT',
-                        'comments': review_comments
-                    }
-                    
-                    response = requests.post(review_url, headers=headers, json=review_data)
-                    if response.status_code == 200:
-                        print(f"✅ Posted {len(review_comments)} inline suggestions")
-                    else:
-                        print(f"⚠️ Failed to post inline comments: {response.status_code}")
-                else:
-                    print("ℹ️ No issues found - code looks good!")
-
-            def run(self):
-                """Main execution"""
-                print("🤖 Enhanced AI PR Review (Copilot Style)")
-                print("=" * 50)
-                
-                # Validate environment
-                if not all([self.github_token, self.repo, self.pr_number]):
-                    print("❌ Missing required environment variables")
-                    return False
-                
-                try:
-                    # Get PR data
-                    pr_data, files_data = self.get_pr_data()
-                    print(f"📋 Analyzing PR #{self.pr_number} with {len(files_data)} files")
-                    
-                    # Create and post overview comment
-                    overview = self.create_pr_overview(pr_data, files_data)
-                    
-                    comment_url = f"https://api.github.com/repos/{self.repo}/issues/{self.pr_number}/comments"
-                    response = requests.post(
-                        comment_url,
-                        headers=self.get_headers(),
-                        json={'body': overview}
-                    )
-                    
-                    if response.status_code == 201:
-                        print("✅ Posted PR overview comment")
-                    else:
-                        print(f"⚠️ Failed to post overview: {response.status_code}")
-                    
-                    # Create inline review comments
-                    self.create_inline_review(pr_data, files_data)
-                    
-                    print("🎉 Enhanced PR review completed!")
-                    return True
-                    
-                except Exception as e:
-                    print(f"❌ Error: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    return False
-
-        # Run the reviewer
-        if __name__ == "__main__":
-            reviewer = CopilotStyleReviewer()
-            success = reviewer.run()
-            sys.exit(0 if success else 1)
-        SCRIPT
-
-    - name: Run Enhanced PR Review
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
-      run: |
-        python enhanced_pr_reviewer.py,
-                    r'#\s*temporary\s*
-
-            def create_inline_review(self, pr_data, files_data):
-                """Create inline review comments like Copilot"""
-                headers = self.get_headers()
-                commit_sha = pr_data['head']['sha']
-                
-                review_comments = []
-                
-                # Analyze each file
-                for file_data in files_data:
-                    filename = file_data.get('filename', '')
-                    patch = file_data.get('patch', '')
-                    
-                    if not patch or not any(filename.endswith(ext) for ext in ['.py', '.js', '.ts', '.java', '.go']):
-                        continue
-                    
-                    # Parse diff for line numbers
-                    added_lines = self.parse_diff_for_line_numbers(patch)
-                    
-                    if not added_lines:
-                        continue
-                    
-                    # Get AI analysis
-                    ai_comments = self.analyze_code_with_ai(patch, filename)
-                    
-                    # Create review comments
-                    for ai_comment in ai_comments:
-                        line_num = ai_comment.get('line')
-                        message = ai_comment.get('message', '')
-                        suggested_code = ai_comment.get('suggested_code', '')
-                        comment_type = ai_comment.get('type', 'suggestion')
-                        
-                        # Find matching line in our parsed diff
-                        matching_line = next((l for l in added_lines if l['line'] == line_num), None)
-                        
-                        if matching_line:
-                            comment_body = message
-                            
-                            # Add suggested change if provided
-                            if suggested_code:
-                                if suggested_code.strip():
-                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n{suggested_code}\n```"
-                                else:
-                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n\n```"
-                            
-                            review_comments.append({
-                                'path': filename,
-                                'line': line_num,
-                                'body': comment_body
-                            })
-                
-                # Post review if we have comments
-                if review_comments:
-                    review_url = f"https://api.github.com/repos/{self.repo}/pulls/{self.pr_number}/reviews"
-                    
-                    review_data = {
-                        'commit_id': commit_sha,
-                        'event': 'COMMENT',
-                        'comments': review_comments
-                    }
-                    
-                    response = requests.post(review_url, headers=headers, json=review_data)
-                    if response.status_code == 200:
-                        print(f"✅ Posted {len(review_comments)} inline suggestions")
-                    else:
-                        print(f"⚠️ Failed to post inline comments: {response.status_code}")
-                else:
-                    print("ℹ️ No issues found - code looks good!")
-
-            def run(self):
-                """Main execution"""
-                print("🤖 Enhanced AI PR Review (Copilot Style)")
-                print("=" * 50)
-                
-                # Validate environment
-                if not all([self.github_token, self.repo, self.pr_number]):
-                    print("❌ Missing required environment variables")
-                    return False
-                
-                try:
-                    # Get PR data
-                    pr_data, files_data = self.get_pr_data()
-                    print(f"📋 Analyzing PR #{self.pr_number} with {len(files_data)} files")
-                    
-                    # Create and post overview comment
-                    overview = self.create_pr_overview(pr_data, files_data)
-                    
-                    comment_url = f"https://api.github.com/repos/{self.repo}/issues/{self.pr_number}/comments"
-                    response = requests.post(
-                        comment_url,
-                        headers=self.get_headers(),
-                        json={'body': overview}
-                    )
-                    
-                    if response.status_code == 201:
-                        print("✅ Posted PR overview comment")
-                    else:
-                        print(f"⚠️ Failed to post overview: {response.status_code}")
-                    
-                    # Create inline review comments
-                    self.create_inline_review(pr_data, files_data)
-                    
-                    print("🎉 Enhanced PR review completed!")
-                    return True
-                    
-                except Exception as e:
-                    print(f"❌ Error: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    return False
-
-        # Run the reviewer
-        if __name__ == "__main__":
-            reviewer = CopilotStyleReviewer()
-            success = reviewer.run()
-            sys.exit(0 if success else 1)
-        SCRIPT
-
-    - name: Run Enhanced PR Review
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
-      run: |
-        python enhanced_pr_reviewer.py,
-                    r'#\s*todo\s*remove',
-                    r'#\s*for\s*test',
-                    r'#\s*test\s*code',
-                    r'#\s*remove\s*this'
-                ]
-                
-                # Comment formatting issues
-                format_patterns = [
-                    r'#[A-Za-z]',  # Missing space after #
-                ]
-                
-                for line_data in added_lines:
-                    line_content = line_data['content'].strip()
-                    line_num = line_data['line']
-                    
-                    # Check for test comment patterns
-                    for pattern in test_patterns:
-                        if re.search(pattern, line_content, re.IGNORECASE):
-                            manual_comments.append({
-                                'line': line_num,
-                                'message': 'This comment appears to be a test comment that should be removed before merging to production.',
-                                'type': 'suggestion',
-                                'suggested_code': '',
-                                'reason': 'remove_test_comment'
-                            })
-                            break
-                    
-                    # Check for formatting issues
-                    for pattern in format_patterns:
-                        if re.search(pattern, line_content):
-                            # Extract the comment and suggest proper formatting
-                            fixed_comment = re.sub(r'^(\s*)#([A-Za-z])', r'\1# \2', line_content)
-                            manual_comments.append({
-                                'line': line_num,
-                                'message': 'Comment formatting issue: missing space after #',
-                                'type': 'suggestion', 
-                                'suggested_code': fixed_comment,
-                                'reason': 'format_comment'
-                            })
-                            break
-                
-                return manual_comments
-
-            def create_inline_review(self, pr_data, files_data):
-                """Create inline review comments like Copilot"""
-                headers = self.get_headers()
-                commit_sha = pr_data['head']['sha']
-                
-                review_comments = []
-                
-                # Analyze each file
-                for file_data in files_data:
-                    filename = file_data.get('filename', '')
-                    patch = file_data.get('patch', '')
-                    
-                    if not patch or not any(filename.endswith(ext) for ext in ['.py', '.js', '.ts', '.java', '.go']):
-                        continue
-                    
-                    # Parse diff for line numbers
-                    added_lines = self.parse_diff_for_line_numbers(patch)
-                    
-                    if not added_lines:
-                        continue
-                    
-                    # Get AI analysis
-                    ai_comments = self.analyze_code_with_ai(patch, filename)
-                    
-                    # Create review comments
-                    for ai_comment in ai_comments:
-                        line_num = ai_comment.get('line')
-                        message = ai_comment.get('message', '')
-                        suggested_code = ai_comment.get('suggested_code', '')
-                        comment_type = ai_comment.get('type', 'suggestion')
-                        
-                        # Find matching line in our parsed diff
-                        matching_line = next((l for l in added_lines if l['line'] == line_num), None)
-                        
-                        if matching_line:
-                            comment_body = message
-                            
-                            # Add suggested change if provided
-                            if suggested_code:
-                                if suggested_code.strip():
-                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n{suggested_code}\n```"
-                                else:
-                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n\n```"
+                                    # Remove the line completely
+                                    comment_body += f"\n\n```suggestion\n\n```"
+                                    comment_body += f"\n\n*Click 'Commit suggestion' to apply this change automatically.*"
                             
                             review_comments.append({
                                 'path': filename,
