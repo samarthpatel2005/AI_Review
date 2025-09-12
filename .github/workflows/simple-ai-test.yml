@@ -1,12 +1,27 @@
+# 🤖 Enhanced AI PR Review (GitHub Copilot Style)
+# 
+# SETUP REQUIRED:
+# 1. Add these GitHub Secrets in Settings → Secrets and variables → Actions:
+#    - AWS_ACCESS_KEY_ID: Your AWS access key
+#    - AWS_SECRET_ACCESS_KEY: Your AWS secret key
+# 2. Enable amazon.nova-micro-v1:0 model in AWS Bedrock console
+# 3. Ensure AWS region is set correctly below (default: us-east-1)
+#
+# CUSTOMIZATION:
+# - Change AI model: Edit line ~175 (modelId)
+# - Add languages: Edit file extensions in detection logic
+# - Adjust patterns: Modify detection rules starting line ~200
+# - Change prompts: Edit AI prompts around line ~160
+
 name: Enhanced AI PR Review (Copilot Style)
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop ]  # Customize target branches
 
 env:
-  AWS_DEFAULT_REGION: us-east-1
+  AWS_DEFAULT_REGION: us-east-1  # Change to your AWS region if needed
 
 jobs:
   ai-pr-review:
@@ -157,24 +172,115 @@ jobs:
                     
                     print(f"🔍 AI analyzing {filename} (status: {status})...")
                     
-                    # Enhanced AI prompt for ALL issues
+                    # UNIVERSAL AI prompt for ALL programming languages and issues
                     file_ext = filename.split('.')[-1].lower() if '.' in filename else ''
                     
-                    if file_ext in ['c', 'cpp', 'h']:
-                        prompt = "Analyze this C/C++ code diff and find critical security and quality issues. " + \
-                                 "Look for: hardcoded secrets, buffer overflows (gets, strcpy, strcat, sprintf), " + \
-                                 "memory leaks (malloc without free), uninitialized variables, division by zero, " + \
-                                 "SQL injection risks, test/debug comments. " + \
+                    # Comprehensive language-specific analysis
+                    if file_ext in ['c', 'cpp', 'cc', 'cxx', 'h', 'hpp']:
+                        prompt = "Analyze this C/C++ code diff and find ALL critical issues:\n" + \
+                                 "🚨 SECURITY: Buffer overflows (gets, strcpy, strcat, sprintf, scanf), " + \
+                                 "hardcoded secrets, format string vulnerabilities, integer overflows\n" + \
+                                 "⚠️ MEMORY: Memory leaks (malloc/new without free/delete), double free, " + \
+                                 "use after free, uninitialized variables, null pointer dereference\n" + \
+                                 "💡 QUALITY: Division by zero, infinite loops, dead code, test comments\n" + \
                                  f"FILE: {filename} STATUS: {status} DIFF: {patch}"
-                    elif file_ext == 'py':
-                        prompt = "Analyze this Python code diff and find critical issues. " + \
-                                 "Look for: hardcoded secrets, security vulnerabilities, test comments, " + \
-                                 "debug prints, unused imports, missing error handling, type hints. " + \
+                    elif file_ext in ['py', 'pyw']:
+                        prompt = "Analyze this Python code diff and find ALL critical issues:\n" + \
+                                 "🚨 SECURITY: Hardcoded secrets, SQL injection, command injection, " + \
+                                 "eval/exec usage, pickle vulnerabilities, path traversal\n" + \
+                                 "⚠️ QUALITY: Exception handling, resource leaks, performance issues, " + \
+                                 "unused imports, mutable defaults, global variables\n" + \
+                                 "💡 STYLE: PEP8 violations, missing type hints, print statements, test comments\n" + \
+                                 f"FILE: {filename} STATUS: {status} DIFF: {patch}"
+                    elif file_ext in ['js', 'jsx', 'ts', 'tsx']:
+                        prompt = "Analyze this JavaScript/TypeScript code diff and find ALL critical issues:\n" + \
+                                 "🚨 SECURITY: XSS vulnerabilities, prototype pollution, eval usage, " + \
+                                 "hardcoded secrets, insecure randomness, CSRF vulnerabilities\n" + \
+                                 "⚠️ QUALITY: Memory leaks, callback hell, promise rejections, " + \
+                                 "var usage, == vs ===, missing error handling\n" + \
+                                 "💡 STYLE: Console.log statements, unused variables, test comments, " + \
+                                 "missing semicolons, arrow function usage\n" + \
+                                 f"FILE: {filename} STATUS: {status} DIFF: {patch}"
+                    elif file_ext in ['java', 'kt', 'scala']:
+                        prompt = "Analyze this Java/Kotlin/Scala code diff and find ALL critical issues:\n" + \
+                                 "🚨 SECURITY: Hardcoded secrets, SQL injection, deserialization vulnerabilities, " + \
+                                 "path traversal, XML external entity (XXE)\n" + \
+                                 "⚠️ QUALITY: Resource leaks (streams, connections), null pointer exceptions, " + \
+                                 "infinite loops, thread safety issues, memory leaks\n" + \
+                                 "💡 STYLE: System.out.println usage, unused imports, test comments, " + \
+                                 "missing generics, raw types\n" + \
+                                 f"FILE: {filename} STATUS: {status} DIFF: {patch}"
+                    elif file_ext in ['go']:
+                        prompt = "Analyze this Go code diff and find ALL critical issues:\n" + \
+                                 "🚨 SECURITY: Hardcoded secrets, SQL injection, command injection, " + \
+                                 "race conditions, unsafe package usage\n" + \
+                                 "⚠️ QUALITY: Goroutine leaks, unchecked errors, resource leaks, " + \
+                                 "panic usage, defer in loops\n" + \
+                                 "💡 STYLE: fmt.Print statements, unused variables, test comments, " + \
+                                 "gofmt violations, missing error handling\n" + \
+                                 f"FILE: {filename} STATUS: {status} DIFF: {patch}"
+                    elif file_ext in ['rs']:
+                        prompt = "Analyze this Rust code diff and find ALL critical issues:\n" + \
+                                 "🚨 SECURITY: Hardcoded secrets, unsafe blocks, integer overflows, " + \
+                                 "buffer overflows in unsafe code\n" + \
+                                 "⚠️ QUALITY: Unwrap usage, panic calls, unused variables, " + \
+                                 "clone overuse, blocking in async\n" + \
+                                 "💡 STYLE: println! statements, test comments, missing documentation, " + \
+                                 "inefficient string handling\n" + \
+                                 f"FILE: {filename} STATUS: {status} DIFF: {patch}"
+                    elif file_ext in ['cs']:
+                        prompt = "Analyze this C# code diff and find ALL critical issues:\n" + \
+                                 "🚨 SECURITY: Hardcoded secrets, SQL injection, XSS, deserialization, " + \
+                                 "path traversal, weak cryptography\n" + \
+                                 "⚠️ QUALITY: Resource disposal (using statements), null reference exceptions, " + \
+                                 "memory leaks, thread safety\n" + \
+                                 "💡 STYLE: Console.WriteLine, unused usings, test comments, " + \
+                                 "missing async/await, boxing\n" + \
+                                 f"FILE: {filename} STATUS: {status} DIFF: {patch}"
+                    elif file_ext in ['php']:
+                        prompt = "Analyze this PHP code diff and find ALL critical issues:\n" + \
+                                 "🚨 SECURITY: SQL injection, XSS, file inclusion, hardcoded secrets, " + \
+                                 "command injection, session fixation\n" + \
+                                 "⚠️ QUALITY: Error handling, resource leaks, performance issues, " + \
+                                 "globals usage, magic numbers\n" + \
+                                 "💡 STYLE: var_dump/print_r, test comments, deprecated functions, " + \
+                                 "PSR violations, missing type declarations\n" + \
+                                 f"FILE: {filename} STATUS: {status} DIFF: {patch}"
+                    elif file_ext in ['rb']:
+                        prompt = "Analyze this Ruby code diff and find ALL critical issues:\n" + \
+                                 "🚨 SECURITY: Hardcoded secrets, SQL injection, command injection, " + \
+                                 "eval usage, YAML.load vulnerabilities\n" + \
+                                 "⚠️ QUALITY: Exception handling, performance issues, memory leaks, " + \
+                                 "global variables, thread safety\n" + \
+                                 "💡 STYLE: puts/p statements, test comments, unused variables, " + \
+                                 "style guide violations\n" + \
+                                 f"FILE: {filename} STATUS: {status} DIFF: {patch}"
+                    elif file_ext in ['swift']:
+                        prompt = "Analyze this Swift code diff and find ALL critical issues:\n" + \
+                                 "🚨 SECURITY: Hardcoded secrets, unsafe pointers, force unwrapping, " + \
+                                 "weak cryptography, keychain issues\n" + \
+                                 "⚠️ QUALITY: Memory leaks, retain cycles, force unwrapping, " + \
+                                 "thread safety, performance issues\n" + \
+                                 "💡 STYLE: print statements, test comments, force casts, " + \
+                                 "naming conventions, unused variables\n" + \
+                                 f"FILE: {filename} STATUS: {status} DIFF: {patch}"
+                    elif file_ext in ['sql', 'mysql', 'pgsql']:
+                        prompt = "Analyze this SQL code diff and find ALL critical issues:\n" + \
+                                 "🚨 SECURITY: SQL injection, privilege escalation, hardcoded credentials, " + \
+                                 "data exposure, weak permissions\n" + \
+                                 "⚠️ QUALITY: Missing indexes, inefficient queries, resource locks, " + \
+                                 "transaction handling, performance issues\n" + \
+                                 "💡 STYLE: Test comments, deprecated functions, formatting issues\n" + \
                                  f"FILE: {filename} STATUS: {status} DIFF: {patch}"
                     else:
-                        prompt = "Analyze this code diff and find critical issues. " + \
-                                 "Look for: hardcoded secrets, security issues, test comments, " + \
-                                 "debug code, unused imports, missing error handling. " + \
+                        # Universal analysis for any other file type
+                        prompt = "Analyze this code diff and find ALL critical issues across all categories:\n" + \
+                                 "🚨 SECURITY: Hardcoded secrets (passwords, API keys, tokens), " + \
+                                 "injection vulnerabilities, insecure functions, weak cryptography\n" + \
+                                 "⚠️ QUALITY: Memory leaks, resource management, error handling, " + \
+                                 "performance issues, infinite loops, null/undefined access\n" + \
+                                 "💡 STYLE: Debug statements, test comments, code smells, " + \
+                                 "unused variables, formatting issues\n" + \
                                  f"FILE: {filename} STATUS: {status} DIFF: {patch}"
                     
                     try:
@@ -184,7 +290,7 @@ jobs:
                         })
                         
                         ai_response = bedrock.invoke_model(
-                            modelId="amazon.nova-micro-v1:0",
+                            modelId="amazon.nova-micro-v1:0",  # CUSTOMIZE: Change AI model here
                             body=body,
                             contentType="application/json"
                         )
@@ -207,10 +313,12 @@ jobs:
                                 line_num += 1
                                 line_content = line[1:].strip()
                                 
-                                # Check for security issues - hardcoded secrets
-                                security_keywords = ['password', 'secret', 'token', 'api_key', 'access_key']
+                                # UNIVERSAL SECURITY DETECTION - Works for ALL languages
+                                security_keywords = ['password', 'secret', 'token', 'api_key', 'access_key', 
+                                                   'private_key', 'secret_key', 'auth_token', 'bearer_token',
+                                                   'client_secret', 'app_secret', 'encryption_key']
                                 if any(word in line_content.lower() for word in security_keywords):
-                                    if '=' in line_content:
+                                    if '=' in line_content or ':' in line_content:
                                         issues_found.append({
                                             'line': line_num,
                                             'type': 'security', 
@@ -219,49 +327,232 @@ jobs:
                                             'suggestion': ''
                                         })
                                 
-                                # C-specific security issues
-                                if filename.endswith(('.c', '.cpp', '.h')):
-                                    # Unsafe C functions
-                                    unsafe_c_funcs = ['gets(', 'strcpy(', 'strcat(', 'sprintf(', 'scanf(']
-                                    for func in unsafe_c_funcs:
+                                # LANGUAGE-SPECIFIC SECURITY AND QUALITY CHECKS
+                                
+                                # C/C++ specific issues
+                                if file_ext in ['c', 'cpp', 'cc', 'cxx', 'h', 'hpp']:
+                                    unsafe_c_funcs = {
+                                        'gets(': 'fgets(buffer, size, stdin)',
+                                        'strcpy(': 'strncpy() or strcpy_s()',
+                                        'strcat(': 'strncat() or strcat_s()',
+                                        'sprintf(': 'snprintf()',
+                                        'scanf(': 'scanf_s() or limit input',
+                                        'system(': 'Use safer alternatives',
+                                        'exec(': 'Validate input carefully'
+                                    }
+                                    for func, suggestion in unsafe_c_funcs.items():
                                         if func in line_content:
-                                            safe_alternatives = {
-                                                'gets(': 'fgets(buffer, size, stdin)',
-                                                'strcpy(': 'strncpy() or strcpy_s()',
-                                                'strcat(': 'strncat() or strcat_s()',
-                                                'sprintf(': 'snprintf()',
-                                                'scanf(': 'scanf_s() or limit with %Ns'
-                                            }
                                             issues_found.append({
                                                 'line': line_num,
                                                 'type': 'security',
                                                 'severity': 'high',
-                                                'message': f'Unsafe C function {func[:-1]}() detected - buffer overflow risk',
-                                                'suggestion': line_content.replace(func[:-1], safe_alternatives[func].split()[0])
+                                                'message': f'Unsafe C function {func[:-1]}() - buffer overflow/injection risk',
+                                                'suggestion': line_content.replace(func[:-1], suggestion.split()[0])
                                             })
                                     
-                                    # Memory management issues
-                                    if 'malloc(' in line_content and 'free(' not in ai_text:
-                                        issues_found.append({
-                                            'line': line_num,
-                                            'type': 'quality',
-                                            'severity': 'high',
-                                            'message': 'Potential memory leak - malloc without corresponding free',
-                                            'suggestion': ''
-                                        })
-                                    
-                                    # Division without zero check
-                                    if '/' in line_content and 'if' not in line_content and 'return' in line_content:
+                                    if 'malloc(' in line_content:
                                         issues_found.append({
                                             'line': line_num,
                                             'type': 'quality',
                                             'severity': 'medium',
-                                            'message': 'Division operation without zero check',
+                                            'message': 'Memory allocation - ensure corresponding free() call',
                                             'suggestion': ''
                                         })
                                 
-                                # Check for test/debug comments (C and other languages)
-                                comment_patterns = [r'^//\s*(test|debug|hello|todo|fixme)', r'^#\s*(test|debug|hello|todo|fixme)']
+                                # Python specific issues
+                                elif file_ext in ['py', 'pyw']:
+                                    if 'eval(' in line_content or 'exec(' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'security',
+                                            'severity': 'high',
+                                            'message': 'eval/exec usage - code injection risk',
+                                            'suggestion': ''
+                                        })
+                                    if 'print(' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'low',
+                                            'message': 'Consider using logging instead of print statements',
+                                            'suggestion': line_content.replace('print(', 'logging.info(')
+                                        })
+                                    if 'import os' in line_content and 'os.system(' in patch:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'security',
+                                            'severity': 'high',
+                                            'message': 'os.system() usage - command injection risk',
+                                            'suggestion': 'Use subprocess.run() with shell=False'
+                                        })
+                                
+                                # JavaScript/TypeScript specific issues
+                                elif file_ext in ['js', 'jsx', 'ts', 'tsx']:
+                                    if 'eval(' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'security',
+                                            'severity': 'high',
+                                            'message': 'eval() usage - code injection risk',
+                                            'suggestion': ''
+                                        })
+                                    if 'console.log(' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'low',
+                                            'message': 'Remove console.log in production code',
+                                            'suggestion': ''
+                                        })
+                                    if '==' in line_content and '===' not in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'medium',
+                                            'message': 'Use strict equality (===) instead of ==',
+                                            'suggestion': line_content.replace('==', '===')
+                                        })
+                                    if 'innerHTML' in line_content and not 'textContent' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'security',
+                                            'severity': 'medium',
+                                            'message': 'innerHTML usage - potential XSS vulnerability',
+                                            'suggestion': 'Consider using textContent or proper sanitization'
+                                        })
+                                
+                                # Java specific issues
+                                elif file_ext in ['java', 'kt', 'scala']:
+                                    if 'System.out.print' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'low',
+                                            'message': 'Use logging framework instead of System.out',
+                                            'suggestion': 'logger.info(...)'
+                                        })
+                                    if 'Runtime.getRuntime().exec(' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'security',
+                                            'severity': 'high',
+                                            'message': 'Runtime.exec() - command injection risk',
+                                            'suggestion': ''
+                                        })
+                                
+                                # Go specific issues
+                                elif file_ext == 'go':
+                                    if 'fmt.Print' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'low',
+                                            'message': 'Consider using logging instead of fmt.Print',
+                                            'suggestion': ''
+                                        })
+                                    if 'exec.Command(' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'security',
+                                            'severity': 'medium',
+                                            'message': 'Command execution - validate input carefully',
+                                            'suggestion': ''
+                                        })
+                                
+                                # C# specific issues
+                                elif file_ext == 'cs':
+                                    if 'Console.Write' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'low',
+                                            'message': 'Use logging framework instead of Console.Write',
+                                            'suggestion': ''
+                                        })
+                                
+                                # PHP specific issues
+                                elif file_ext == 'php':
+                                    if 'eval(' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'security',
+                                            'severity': 'high',
+                                            'message': 'eval() usage - code injection risk',
+                                            'suggestion': ''
+                                        })
+                                    if 'var_dump(' in line_content or 'print_r(' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'low',
+                                            'message': 'Remove debug functions in production',
+                                            'suggestion': ''
+                                        })
+                                
+                                # Ruby specific issues
+                                elif file_ext == 'rb':
+                                    if 'eval(' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'security',
+                                            'severity': 'high',
+                                            'message': 'eval() usage - code injection risk',
+                                            'suggestion': ''
+                                        })
+                                    if 'puts ' in line_content or 'p ' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'low',
+                                            'message': 'Consider using logger instead of puts/p',
+                                            'suggestion': ''
+                                        })
+                                
+                                # Swift specific issues
+                                elif file_ext == 'swift':
+                                    if 'print(' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'low',
+                                            'message': 'Remove print statements in production',
+                                            'suggestion': ''
+                                        })
+                                    if '!' in line_content and 'Optional' not in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'medium',
+                                            'message': 'Force unwrapping detected - consider safe unwrapping',
+                                            'suggestion': ''
+                                        })
+                                
+                                # Rust specific issues
+                                elif file_ext == 'rs':
+                                    if 'unwrap()' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'medium',
+                                            'message': 'unwrap() usage - consider proper error handling',
+                                            'suggestion': line_content.replace('.unwrap()', '.expect("description")')
+                                        })
+                                    if 'println!' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'low',
+                                            'message': 'Remove println! in production code',
+                                            'suggestion': ''
+                                        })
+                                
+                                # UNIVERSAL COMMENT DETECTION (all languages)
+                                comment_patterns = [
+                                    r'^//\s*(test|debug|hello|todo|fixme|hack)',  # C-style comments
+                                    r'^#\s*(test|debug|hello|todo|fixme|hack)',   # Python/Shell comments
+                                    r'^\*\s*(test|debug|hello|todo|fixme|hack)',  # Block comment lines
+                                    r'^<!--\s*(test|debug|hello|todo|fixme|hack)' # HTML comments
+                                ]
                                 for pattern in comment_patterns:
                                     if re.match(pattern, line_content.lower()):
                                         issues_found.append({
@@ -272,24 +563,31 @@ jobs:
                                             'suggestion': ''
                                         })
                                 
-                                # Check for print statements in Python
-                                if 'print(' in line_content and filename.endswith('.py'):
-                                    issues_found.append({
-                                        'line': line_num,
-                                        'type': 'quality',
-                                        'severity': 'low',
-                                        'message': 'Consider using logging instead of print statements',
-                                        'suggestion': line_content.replace('print(', 'logging.info(')
-                                    })
+                                # UNIVERSAL SQL INJECTION PATTERNS
+                                sql_injection_patterns = [
+                                    r'SELECT.*\+.*\+',  # String concatenation in SQL
+                                    r'WHERE.*=.*\+',    # Dynamic WHERE clauses
+                                    r'INSERT.*\+.*\+',  # Dynamic INSERT
+                                    r'UPDATE.*\+.*\+'   # Dynamic UPDATE
+                                ]
+                                for pattern in sql_injection_patterns:
+                                    if re.search(pattern, line_content, re.IGNORECASE):
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'security',
+                                            'severity': 'high',
+                                            'message': 'Potential SQL injection - use parameterized queries',
+                                            'suggestion': ''
+                                        })
                                 
-                                # Check for printf in C (could suggest logging)
-                                if 'printf(' in line_content and filename.endswith(('.c', '.cpp')):
-                                    if 'debug' in line_content.lower() or 'test' in line_content.lower():
+                                # DIVISION BY ZERO CHECK (universal)
+                                if '/' in line_content and ('return' in line_content or '=' in line_content):
+                                    if 'if' not in line_content and '//' not in line_content:
                                         issues_found.append({
                                             'line': line_num,
                                             'type': 'quality',
-                                            'severity': 'low',
-                                            'message': 'Consider removing debug printf statements',
+                                            'severity': 'medium',
+                                            'message': 'Division operation without zero check',
                                             'suggestion': ''
                                         })
                                 
