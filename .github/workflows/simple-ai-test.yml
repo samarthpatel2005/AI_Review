@@ -140,7 +140,7 @@ jobs:
             else:
                 print(f"⚠️ Failed to post overview: {comment_response.status_code}")
             
-            # AI Analysis and inline comments
+            # Enhanced AI Analysis for ALL issues and file types
             if bedrock:
                 commit_sha = pr_data['head']['sha']
                 review_comments = []
@@ -148,58 +148,206 @@ jobs:
                 for file_data in files_data:
                     filename = file_data.get('filename', '')
                     patch = file_data.get('patch', '')
+                    status = file_data.get('status', '')
                     
-                    if not patch or not filename.endswith('.py'):
+                    # Skip binary files
+                    skip_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.pdf', '.zip', '.exe', '.dll']
+                    if not patch or any(filename.lower().endswith(ext) for ext in skip_extensions):
                         continue
                     
-                    print(f"🔍 AI analyzing {filename}...")
+                    print(f"🔍 AI analyzing {filename} (status: {status})...")
                     
-                    # Simple AI prompt
-                    prompt = f"Find issues in this diff for {filename}. Look for test comments like '# hello test' or '#test' that should be removed. Return JSON with comments array. DIFF: {patch}"
+                    # Enhanced AI prompt for ALL issues
+                    file_ext = filename.split('.')[-1].lower() if '.' in filename else ''
+                    
+                    if file_ext in ['c', 'cpp', 'h']:
+                        prompt = "Analyze this C/C++ code diff and find critical security and quality issues. " + \
+                                 "Look for: hardcoded secrets, buffer overflows (gets, strcpy, strcat, sprintf), " + \
+                                 "memory leaks (malloc without free), uninitialized variables, division by zero, " + \
+                                 "SQL injection risks, test/debug comments. " + \
+                                 f"FILE: {filename} STATUS: {status} DIFF: {patch}"
+                    elif file_ext == 'py':
+                        prompt = "Analyze this Python code diff and find critical issues. " + \
+                                 "Look for: hardcoded secrets, security vulnerabilities, test comments, " + \
+                                 "debug prints, unused imports, missing error handling, type hints. " + \
+                                 f"FILE: {filename} STATUS: {status} DIFF: {patch}"
+                    else:
+                        prompt = "Analyze this code diff and find critical issues. " + \
+                                 "Look for: hardcoded secrets, security issues, test comments, " + \
+                                 "debug code, unused imports, missing error handling. " + \
+                                 f"FILE: {filename} STATUS: {status} DIFF: {patch}"
                     
                     try:
-                        body = {
+                        body = json.dumps({
                             "messages": [{"role": "user", "content": [{"text": prompt}]}],
-                            "inferenceConfig": {"maxTokens": 800, "temperature": 0.1}
-                        }
+                            "inferenceConfig": {"maxTokens": 1500, "temperature": 0.1}
+                        })
                         
                         ai_response = bedrock.invoke_model(
                             modelId="amazon.nova-micro-v1:0",
-                            body=json.dumps(body),
+                            body=body,
                             contentType="application/json"
                         )
                         
                         result = json.loads(ai_response['body'].read())
                         ai_text = result['output']['message']['content'][0]['text']
-                        print(f"🤖 AI response: {ai_text[:100]}...")
+                        print(f"🤖 AI response: {ai_text[:150]}...")
                         
-                        # Try to extract suggestions
-                        if "hello test" in ai_text.lower() or "test comment" in ai_text.lower():
-                            # Parse diff for line numbers of added lines
-                            lines = patch.split('\n')
-                            new_line = 0
-                            for line in lines:
-                                if line.startswith('@@'):
-                                    match = re.match(r'@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@', line)
-                                    if match:
-                                        new_line = int(match.group(1)) - 1
-                                elif line.startswith('+') and not line.startswith('+++'):
-                                    new_line += 1
-                                    if "hello test" in line.lower():
-                                        review_comments.append({
-                                            'path': filename,
-                                            'line': new_line,
-                                            'body': '💡 **Suggestion:** Remove test comment before production\n\n```suggestion\n\n```\n\n*Click "Commit suggestion" to apply this change automatically.*'
+                        # Parse diff for line numbers and content
+                        lines = patch.split('\n')
+                        line_num = 0
+                        issues_found = []
+                        
+                        for line in lines:
+                            if line.startswith('@@'):
+                                match = re.match(r'@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@', line)
+                                if match:
+                                    line_num = int(match.group(1)) - 1
+                            elif line.startswith('+') and not line.startswith('+++'):
+                                line_num += 1
+                                line_content = line[1:].strip()
+                                
+                                # Check for security issues - hardcoded secrets
+                                security_keywords = ['password', 'secret', 'token', 'api_key', 'access_key']
+                                if any(word in line_content.lower() for word in security_keywords):
+                                    if '=' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'security', 
+                                            'severity': 'high',
+                                            'message': 'Potential hardcoded secret detected',
+                                            'suggestion': ''
                                         })
-                                        print(f"✅ Found test comment on line {new_line}")
-                                elif line.startswith(' '):
-                                    new_line += 1
+                                
+                                # C-specific security issues
+                                if filename.endswith(('.c', '.cpp', '.h')):
+                                    # Unsafe C functions
+                                    unsafe_c_funcs = ['gets(', 'strcpy(', 'strcat(', 'sprintf(', 'scanf(']
+                                    for func in unsafe_c_funcs:
+                                        if func in line_content:
+                                            safe_alternatives = {
+                                                'gets(': 'fgets(buffer, size, stdin)',
+                                                'strcpy(': 'strncpy() or strcpy_s()',
+                                                'strcat(': 'strncat() or strcat_s()',
+                                                'sprintf(': 'snprintf()',
+                                                'scanf(': 'scanf_s() or limit with %Ns'
+                                            }
+                                            issues_found.append({
+                                                'line': line_num,
+                                                'type': 'security',
+                                                'severity': 'high',
+                                                'message': f'Unsafe C function {func[:-1]}() detected - buffer overflow risk',
+                                                'suggestion': line_content.replace(func[:-1], safe_alternatives[func].split()[0])
+                                            })
+                                    
+                                    # Memory management issues
+                                    if 'malloc(' in line_content and 'free(' not in ai_text:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'high',
+                                            'message': 'Potential memory leak - malloc without corresponding free',
+                                            'suggestion': ''
+                                        })
+                                    
+                                    # Division without zero check
+                                    if '/' in line_content and 'if' not in line_content and 'return' in line_content:
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'medium',
+                                            'message': 'Division operation without zero check',
+                                            'suggestion': ''
+                                        })
+                                
+                                # Check for test/debug comments (C and other languages)
+                                comment_patterns = [r'^//\s*(test|debug|hello|todo|fixme)', r'^#\s*(test|debug|hello|todo|fixme)']
+                                for pattern in comment_patterns:
+                                    if re.match(pattern, line_content.lower()):
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'medium', 
+                                            'message': 'Remove test/debug comment before production',
+                                            'suggestion': ''
+                                        })
+                                
+                                # Check for print statements in Python
+                                if 'print(' in line_content and filename.endswith('.py'):
+                                    issues_found.append({
+                                        'line': line_num,
+                                        'type': 'quality',
+                                        'severity': 'low',
+                                        'message': 'Consider using logging instead of print statements',
+                                        'suggestion': line_content.replace('print(', 'logging.info(')
+                                    })
+                                
+                                # Check for printf in C (could suggest logging)
+                                if 'printf(' in line_content and filename.endswith(('.c', '.cpp')):
+                                    if 'debug' in line_content.lower() or 'test' in line_content.lower():
+                                        issues_found.append({
+                                            'line': line_num,
+                                            'type': 'quality',
+                                            'severity': 'low',
+                                            'message': 'Consider removing debug printf statements',
+                                            'suggestion': ''
+                                        })
+                                
+                                # Check for missing error handling
+                                if 'requests.' in line_content and 'except' not in ai_text:
+                                    issues_found.append({
+                                        'line': line_num,
+                                        'type': 'quality',
+                                        'severity': 'medium',
+                                        'message': 'Consider adding error handling for HTTP requests',
+                                        'suggestion': ''
+                                    })
+                            
+                            elif line.startswith(' '):
+                                line_num += 1
+                        
+                        # Create review comments for found issues
+                        print(f"🔍 Found {len(issues_found)} issues in {filename}")
+                        
+                        for issue in issues_found:
+                            line_num = issue.get('line', 0)
+                            severity = issue.get('severity', 'medium')
+                            message = issue.get('message', 'Issue detected')
+                            suggestion = issue.get('suggestion', '')
+                            
+                            # Format comment based on severity
+                            if severity == 'high':
+                                icon = '🚨'
+                                label = 'Critical'
+                            elif severity == 'medium':
+                                icon = '⚠️'
+                                label = 'Warning'
+                            else:
+                                icon = '💡'
+                                label = 'Suggestion'
+                            
+                            comment_body = f"{icon} **{label}:** {message}"
+                            
+                            # Add suggestion if provided
+                            if suggestion:
+                                comment_body += f"\n\n```suggestion\n{suggestion}\n```"
+                                comment_body += "\n\n*Click 'Commit suggestion' to apply this change automatically.*"
+                            elif suggestion == '':
+                                comment_body += "\n\n```suggestion\n\n```"
+                                comment_body += "\n\n*Click 'Commit suggestion' to remove this line.*"
+                            
+                            review_comments.append({
+                                'path': filename,
+                                'line': line_num,
+                                'body': comment_body
+                            })
                     
                     except Exception as e:
                         print(f"⚠️ AI error for {filename}: {e}")
                 
                 # Post inline comments
                 if review_comments:
+                    print(f"📝 Posting {len(review_comments)} inline suggestions...")
                     review_data = {
                         'commit_id': commit_sha,
                         'event': 'COMMENT', 
@@ -216,7 +364,22 @@ jobs:
                         print(f"✅ Posted {len(review_comments)} inline suggestions")
                     else:
                         print(f"⚠️ Failed to post inline comments: {review_response.status_code}")
-                        print(f"Error: {review_response.text}")
+                        print(f"Response: {review_response.text}")
+                        
+                        # Fallback: post consolidated comment
+                        summary_items = []
+                        for comment in review_comments:
+                            summary_items.append(f"**{comment['path']}** (line {comment['line']}): {comment['body']}")
+                        
+                        fallback_comment = "## 🤖 AI Code Review\n\n" + "\n\n---\n\n".join(summary_items)
+                        fallback_response = requests.post(
+                            f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+                            headers=headers,
+                            json={'body': fallback_comment}
+                        )
+                        
+                        if fallback_response.status_code == 201:
+                            print("✅ Posted consolidated review comment")
                 else:
                     print("ℹ️ No issues found - code looks good!")
             
