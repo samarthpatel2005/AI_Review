@@ -1,0 +1,169 @@
+name: Simple AI Review Test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ main, master, develop ]
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+
+jobs:
+  simple-ai-test:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+      issues: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install boto3 requests
+
+    - name: Debug Event Information
+      run: |
+        echo "=== GitHub Event Debug ==="
+        echo "Event: ${{ github.event_name }}"
+        echo "Action: ${{ github.event.action }}"
+        echo "PR Number: ${{ github.event.pull_request.number }}"
+        echo "Repository: ${{ github.repository }}"
+        echo "Head SHA: ${{ github.event.pull_request.head.sha }}"
+        echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
+        echo "Changed Files:"
+        gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --jq '.[].filename'
+        echo "==========================="
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Simple AI Test
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      run: |
+        python3 << 'EOF'
+        import os
+        import sys
+        import json
+        import requests
+        import boto3
+
+        print("🧪 Simple AI Review Test")
+        print("=" * 30)
+
+        # Check environment
+        github_token = os.environ.get('GITHUB_TOKEN')
+        aws_key = os.environ.get('AWS_ACCESS_KEY_ID') 
+        aws_secret = os.environ.get('AWS_SECRET_ACCESS_KEY')
+
+        print(f"GitHub Token: {'✅' if github_token else '❌'}")
+        print(f"AWS Access Key: {'✅' if aws_key else '❌'}")  
+        print(f"AWS Secret Key: {'✅' if aws_secret else '❌'}")
+
+        if not all([github_token, aws_key, aws_secret]):
+            print("❌ Missing credentials!")
+            sys.exit(1)
+
+        # Get PR info from environment
+        repo = "${{ github.repository }}"
+        pr_number = ${{ github.event.pull_request.number }}
+        
+        print(f"Repository: {repo}")
+        print(f"PR Number: {pr_number}")
+
+        # Test GitHub API
+        headers = {
+            'Authorization': f'token {github_token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+
+        try:
+            # Get PR files
+            files_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
+            response = requests.get(files_url, headers=headers)
+            response.raise_for_status()
+            files = response.json()
+            
+            print(f"📁 Found {len(files)} changed files:")
+            for file_data in files:
+                filename = file_data.get('filename', '')
+                additions = file_data.get('additions', 0)
+                print(f"  - {filename} (+{additions} lines)")
+                
+                # Show patch for Python files
+                if filename.endswith('.py') and additions > 0:
+                    patch = file_data.get('patch', '')
+                    print(f"    Patch preview: {patch[:200]}...")
+
+            # Test AWS Bedrock
+            print("\n🤖 Testing AWS Bedrock...")
+            bedrock = boto3.client('bedrock-runtime', region_name='us-east-1')
+            
+            # Simple test prompt
+            test_prompt = """Analyze this code:
+            #For test
+            PASSWORD = "secret123"
+            
+            Respond with JSON:
+            {"comments": [{"line": 1, "message": "Comment needs space", "suggested_code": "# For test"}]}"""
+            
+            body = {
+                "messages": [{"role": "user", "content": [{"text": test_prompt}]}],
+                "inferenceConfig": {"maxTokens": 500, "temperature": 0.1}
+            }
+            
+            ai_response = bedrock.invoke_model(
+                modelId="amazon.nova-micro-v1:0",
+                body=json.dumps(body),
+                contentType="application/json"
+            )
+            
+            result = json.loads(ai_response['body'].read())
+            ai_text = result['output']['message']['content'][0]['text']
+            
+            print(f"🤖 AI Response: {ai_text[:200]}...")
+            
+            # Post a simple test comment
+            if len(files) > 0:
+                comment_url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+                comment_body = f"""🧪 **AI Review Test Results**
+                
+                ✅ GitHub API: Working
+                ✅ AWS Bedrock: Working  
+                ✅ Found {len(files)} files to analyze
+                
+                AI Response Preview: {ai_text[:100]}...
+                
+                *This is a test comment to verify the AI reviewer is working.*"""
+                
+                comment_response = requests.post(
+                    comment_url,
+                    headers=headers,
+                    json={'body': comment_body}
+                )
+                
+                if comment_response.status_code == 201:
+                    print("✅ Posted test comment successfully!")
+                else:
+                    print(f"❌ Failed to post comment: {comment_response.status_code}")
+
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+        print("✅ Simple AI test completed!")
+        EOF
