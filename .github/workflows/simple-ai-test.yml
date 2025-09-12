@@ -93,40 +93,7 @@ jobs:
                 if not self.bedrock:
                     return []
                 
-                prompt = f'''Analyze this code change in file: {filename}
-
-        DIFF PATCH:
-        ```diff
-        {patch_content}
-        ```
-
-        Detect issues in the ADDED lines (lines starting with +):
-
-        1. **Test/Debug Comments**: Look for comments like "#hello test", "#test", "#debug", "#testing" 
-           → Message: "Remove test comment before production"
-           → suggested_code: "" (empty to remove line)
-
-        2. **Comment Formatting**: Look for comments missing space after # like "#hello" 
-           → Message: "Add space after # for better readability"  
-           → suggested_code: "# hello" (with proper spacing)
-
-        3. **Hardcoded Secrets**: Look for passwords, API keys, tokens
-           → Message: "Remove hardcoded credentials"
-           → suggested_code: "" (empty to remove)
-
-        Provide analysis in JSON format:
-        {{
-          "comments": [
-            {{
-              "line": <line_number>,
-              "message": "Brief description like GitHub Copilot",
-              "type": "suggestion|warning|error",
-              "suggested_code": "exact replacement line or empty string to remove"
-            }}
-          ]
-        }}
-
-        Focus only on NEW lines (+ prefix) and real issues. Keep messages short and actionable.'''
+                prompt = f"Analyze this diff for issues in NEW lines (+ prefix): {patch_content}. Look for test comments like '# hello test', '# test', missing spaces after #, hardcoded secrets. Return JSON with comments array containing line, message, type, suggested_code fields. For test comments suggest removal with empty suggested_code."
 
                 try:
                     body = {
@@ -286,6 +253,11 @@ jobs:
                     
                     # Get AI analysis
                     ai_comments = self.analyze_code_with_ai(patch, filename)
+                    print(f"🔍 AI found {len(ai_comments)} issues in {filename}")
+                    
+                    # Debug: Print AI comments
+                    for i, comment in enumerate(ai_comments):
+                        print(f"  Issue {i+1}: Line {comment.get('line')}, Message: {comment.get('message')}")
                     
                     # Create review comments
                     for ai_comment in ai_comments:
@@ -296,6 +268,10 @@ jobs:
                         
                         # Find matching line in our parsed diff
                         matching_line = next((l for l in added_lines if l['line'] == line_num), None)
+                        
+                        print(f"  🔗 Looking for line {line_num}, found: {matching_line is not None}")
+                        if not matching_line:
+                            print(f"  📍 Available lines: {[l['line'] for l in added_lines]}")
                         
                         if matching_line:
                             # Create comment with appropriate icon based on type
