@@ -1,4 +1,4 @@
-name: Simple AI Review Test
+name: Enhanced AI PR Review (Copilot Style)
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ env:
   AWS_DEFAULT_REGION: us-east-1
 
 jobs:
-  simple-ai-test:
+  ai-pr-review:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -32,184 +32,325 @@ jobs:
         python -m pip install --upgrade pip
         pip install boto3 requests
 
-    - name: Debug Event Information
+    - name: Create Enhanced PR Reviewer Script
       run: |
-        echo "=== GitHub Event Debug ==="
-        echo "Event: ${{ github.event_name }}"
-        echo "Action: ${{ github.event.action }}"
-        echo "PR Number: ${{ github.event.pull_request.number }}"
-        echo "Repository: ${{ github.repository }}"
-        echo "Head SHA: ${{ github.event.pull_request.head.sha }}"
-        echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
-        echo "Changed Files:"
-        gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --jq '.[].filename'
-        echo "==========================="
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Create PR Overview Script
-      run: |
-        cat > pr_overview.py << 'SCRIPT'
+        cat > enhanced_pr_reviewer.py << 'SCRIPT'
         import os
         import sys
         import json
         import requests
         import boto3
         import re
+        from datetime import datetime
 
-        print("🧪 PR Overview AI Test")
-        print("=" * 30)
-
-        # Check environment
-        github_token = os.environ.get('GITHUB_TOKEN')
-        aws_key = os.environ.get('AWS_ACCESS_KEY_ID') 
-        aws_secret = os.environ.get('AWS_SECRET_ACCESS_KEY')
-
-        print(f"GitHub Token: {'✅' if github_token else '❌'}")
-        print(f"AWS Access Key: {'✅' if aws_key else '❌'}")  
-        print(f"AWS Secret Key: {'✅' if aws_secret else '❌'}")
-
-        if not all([github_token, aws_key, aws_secret]):
-            print("❌ Missing credentials!")
-            sys.exit(1)
-
-        # Get PR info from environment
-        repo = os.environ.get('GITHUB_REPOSITORY')
-        pr_number = os.environ.get('PR_NUMBER')
-        
-        print(f"Repository: {repo}")
-        print(f"PR Number: {pr_number}")
-
-        # Test GitHub API
-        headers = {
-            'Authorization': f'token {github_token}',
-            'Accept': 'application/vnd.github.v3+json'
-        }
-
-        try:
-            # Get PR info
-            pr_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
-            pr_response = requests.get(pr_url, headers=headers)
-            pr_response.raise_for_status()
-            pr_data = pr_response.json()
-            
-            pr_title = pr_data.get('title', 'No title')
-            pr_body = pr_data.get('body', 'No description')
-            
-            # Get PR files
-            files_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
-            response = requests.get(files_url, headers=headers)
-            response.raise_for_status()
-            files = response.json()
-            
-            print(f"📁 Found {len(files)} changed files:")
-            
-            # Analyze changes for overview
-            total_additions = sum(f.get('additions', 0) for f in files)
-            total_deletions = sum(f.get('deletions', 0) for f in files)
-            
-            changed_files_summary = []
-            diff_lines = []
-            
-            for file_data in files:
-                filename = file_data.get('filename', '')
-                additions = file_data.get('additions', 0)
-                deletions = file_data.get('deletions', 0)
-                status = file_data.get('status', '')
-                patch = file_data.get('patch', '')
+        class CopilotStyleReviewer:
+            def __init__(self):
+                self.github_token = os.environ.get('GITHUB_TOKEN')
+                self.repo = os.environ.get('GITHUB_REPOSITORY')
+                self.pr_number = os.environ.get('PR_NUMBER')
+                self.aws_key = os.environ.get('AWS_ACCESS_KEY_ID')
+                self.aws_secret = os.environ.get('AWS_SECRET_ACCESS_KEY')
                 
-                print(f"  - {filename} (+{additions}/-{deletions}) [{status}]")
+                # Initialize Bedrock client
+                try:
+                    self.bedrock = boto3.client(
+                        'bedrock-runtime',
+                        region_name='us-east-1',
+                        aws_access_key_id=self.aws_key,
+                        aws_secret_access_key=self.aws_secret
+                    )
+                except Exception as e:
+                    print(f"⚠️ Could not initialize Bedrock (will skip AI analysis): {e}")
+                    self.bedrock = None
+
+            def get_headers(self):
+                return {
+                    'Authorization': f'token {self.github_token}',
+                    'Accept': 'application/vnd.github.v3+json',
+                    'User-Agent': 'Enhanced-PR-Reviewer'
+                }
+
+            def get_pr_data(self):
+                """Get PR and files data"""
+                headers = self.get_headers()
                 
-                # Store file summary
-                changed_files_summary.append({
-                    'filename': filename,
-                    'additions': additions,
-                    'deletions': deletions,
-                    'status': status
-                })
+                # Get PR info
+                pr_url = f"https://api.github.com/repos/{self.repo}/pulls/{self.pr_number}"
+                pr_response = requests.get(pr_url, headers=headers)
+                pr_response.raise_for_status()
+                pr_data = pr_response.json()
                 
-                # Extract diff lines for display
-                if patch:
-                    diff_lines.append(f"")
-                    diff_lines.append(f"### {filename}")
-                    diff_lines.append("```diff")
+                # Get PR files
+                files_url = f"https://api.github.com/repos/{self.repo}/pulls/{self.pr_number}/files"
+                files_response = requests.get(files_url, headers=headers)
+                files_response.raise_for_status()
+                files_data = files_response.json()
+                
+                return pr_data, files_data
+
+            def analyze_code_with_ai(self, patch_content, filename):
+                """Analyze code using AWS Bedrock AI"""
+                if not self.bedrock:
+                    return []
+                
+                prompt = f'''Analyze this code change in file: {filename}
+
+        DIFF PATCH:
+        ```diff
+        {patch_content}
+        ```
+
+        Provide analysis in JSON format focusing on:
+        1. Comment formatting issues (missing space after # in Python)
+        2. Test/debug comments that should be removed
+        3. Security issues (hardcoded credentials, etc.)
+        4. Code quality issues
+
+        Format:
+        {{
+          "comments": [
+            {{
+              "line": <line_number>,
+              "message": "Brief description like GitHub Copilot",
+              "type": "suggestion|warning|error",
+              "suggested_code": "exact replacement line or empty string to remove"
+            }}
+          ]
+        }}
+
+        Rules:
+        - Flag comments like "#test" or "#hello test" - should be removed
+        - Flag comments missing space after # like "#For test" → "# For test"  
+        - Keep messages short and actionable
+        - Only include real issues'''
+
+                try:
+                    body = {
+                        "messages": [{"role": "user", "content": [{"text": prompt}]}],
+                        "inferenceConfig": {"maxTokens": 1500, "temperature": 0.1}
+                    }
                     
-                    lines = patch.split('\n')
-                    for line in lines:
-                        if line.startswith('+') and not line.startswith('+++'):
-                            diff_lines.append(line)
-                        elif line.startswith('-') and not line.startswith('---'):
-                            diff_lines.append(line)
+                    response = self.bedrock.invoke_model(
+                        modelId="amazon.nova-micro-v1:0",
+                        body=json.dumps(body),
+                        contentType="application/json"
+                    )
                     
-                    diff_lines.append("```")
-            
-            # Generate Pull Request Overview
-            file_count = len(files)
-            file_text = "file" if file_count == 1 else "files"
-            add_text = "addition" if total_additions == 1 else "additions"
-            del_text = "deletion" if total_deletions == 1 else "deletions"
-            
-            # Build overview parts
-            overview_parts = [
-                "## Pull Request Overview",
-                "",
-                f"This PR modifies {file_count} {file_text} with {total_additions} {add_text} and {total_deletions} {del_text}.",
-                "",
-                f"**Title:** {pr_title}",
-                "",
-                "**Changes Summary:**"
-            ]
-            
-            # Add file changes
-            for file_summary in changed_files_summary:
-                fname = file_summary['filename']
-                adds = file_summary['additions']
-                dels = file_summary['deletions'] 
-                status = file_summary['status']
+                    result = json.loads(response['body'].read())
+                    ai_response = result['output']['message']['content'][0]['text']
+                    
+                    # Extract JSON from response
+                    json_match = re.search(r'\{.*\}', ai_response, re.DOTALL)
+                    if json_match:
+                        return json.loads(json_match.group(0)).get('comments', [])
+                    
+                except Exception as e:
+                    print(f"⚠️ AI analysis error for {filename}: {e}")
                 
-                if status == 'added':
-                    overview_parts.append(f"- ✅ **Added** `{fname}` with {adds} lines")
-                elif status == 'modified':
-                    overview_parts.append(f"- 📝 **Modified** `{fname}` (+{adds}/-{dels} lines)")
-                elif status == 'deleted':
-                    overview_parts.append(f"- ❌ **Deleted** `{fname}`")
+                return []
+
+            def create_pr_overview(self, pr_data, files_data):
+                """Create GitHub Copilot style PR overview"""
+                title = pr_data.get('title', 'No title')
+                body = pr_data.get('body', '')
+                
+                total_files = len(files_data)
+                total_additions = sum(f.get('additions', 0) for f in files_data)
+                total_deletions = sum(f.get('deletions', 0) for f in files_data)
+                
+                # Build overview
+                overview = ["## Pull Request Overview", ""]
+                
+                # Summary line
+                file_text = "file" if total_files == 1 else "files"
+                if total_additions > 0 and total_deletions > 0:
+                    overview.append(f"This PR modifies {total_files} {file_text} with {total_additions} additions and {total_deletions} deletions.")
+                elif total_additions > 0:
+                    overview.append(f"This PR adds {total_additions} lines across {total_files} {file_text}.")
+                elif total_deletions > 0:
+                    overview.append(f"This PR removes {total_deletions} lines from {total_files} {file_text}.")
                 else:
-                    overview_parts.append(f"- 🔄 **Changed** `{fname}` (+{adds}/-{dels} lines)")
-            
-            # Add diff content if available
-            if diff_lines:
-                overview_parts.extend(["", "## Code Changes"])
-                overview_parts.extend(diff_lines)
-            
-            # Join all parts with newlines
-            final_comment = "\n".join(overview_parts)
-            
-            # Create final comment (just overview + diff, no AI analysis)
-            comment_url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
-            
-            comment_response = requests.post(
-                comment_url,
-                headers=headers,
-                json={'body': final_comment}
-            )
-            
-            if comment_response.status_code == 201:
-                print("✅ Posted GitHub Copilot-style PR overview!")
-                print(f"📝 Comment length: {len(final_comment)} characters")
-            else:
-                print(f"❌ Failed to post comment: {comment_response.status_code}")
-                print(f"Response: {comment_response.text}")
+                    overview.append(f"This PR modifies {total_files} {file_text}.")
+                
+                overview.extend(["", f"**{title}**"])
+                
+                if body and body.strip():
+                    overview.extend(["", body[:200] + ("..." if len(body) > 200 else "")])
+                
+                # File changes summary
+                overview.extend(["", "### Changes Summary"])
+                
+                for file_data in files_data:
+                    filename = file_data.get('filename', '')
+                    additions = file_data.get('additions', 0)
+                    deletions = file_data.get('deletions', 0)
+                    status = file_data.get('status', '')
+                    
+                    if status == 'added':
+                        overview.append(f"• **Added** `{filename}` ({additions} lines)")
+                    elif status == 'modified':
+                        if additions > 0 and deletions > 0:
+                            overview.append(f"• **Modified** `{filename}` (+{additions}/-{deletions})")
+                        elif additions > 0:
+                            overview.append(f"• **Modified** `{filename}` (+{additions})")
+                        elif deletions > 0:
+                            overview.append(f"• **Modified** `{filename}` (-{deletions})")
+                        else:
+                            overview.append(f"• **Modified** `{filename}`")
+                    elif status == 'deleted':
+                        overview.append(f"• **Deleted** `{filename}`")
+                    else:
+                        overview.append(f"• **Changed** `{filename}`")
+                
+                # Add tip at the bottom (like Copilot)
+                overview.extend([
+                    "",
+                    "---",
+                    "**Tip:** Customize your code reviews with copilot-instructions.md. [Create the file](https://github.com/github/copilot-instructions) or [learn how to get started](https://docs.github.com/en/copilot)."
+                ])
+                
+                return "\n".join(overview)
 
-        except Exception as e:
-            print(f"❌ Error: {e}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
+            def parse_diff_for_line_numbers(self, patch):
+                """Parse diff to get line numbers for added lines"""
+                added_lines = []
+                lines = patch.split('\n')
+                new_line = 0
+                
+                for line in lines:
+                    if line.startswith('@@'):
+                        hunk_match = re.match(r'@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@', line)
+                        if hunk_match:
+                            new_line = int(hunk_match.group(1)) - 1
+                    elif line.startswith('+') and not line.startswith('+++'):
+                        new_line += 1
+                        added_lines.append({
+                            'line': new_line,
+                            'content': line[1:]  # Remove + prefix
+                        })
+                    elif line.startswith(' '):
+                        new_line += 1
+                
+                return added_lines
 
-        print("✅ GitHub Copilot-style test completed!")
+            def create_inline_review(self, pr_data, files_data):
+                """Create inline review comments like Copilot"""
+                headers = self.get_headers()
+                commit_sha = pr_data['head']['sha']
+                
+                review_comments = []
+                
+                # Analyze each file
+                for file_data in files_data:
+                    filename = file_data.get('filename', '')
+                    patch = file_data.get('patch', '')
+                    
+                    if not patch or not any(filename.endswith(ext) for ext in ['.py', '.js', '.ts', '.java', '.go']):
+                        continue
+                    
+                    # Parse diff for line numbers
+                    added_lines = self.parse_diff_for_line_numbers(patch)
+                    
+                    if not added_lines:
+                        continue
+                    
+                    # Get AI analysis
+                    ai_comments = self.analyze_code_with_ai(patch, filename)
+                    
+                    # Create review comments
+                    for ai_comment in ai_comments:
+                        line_num = ai_comment.get('line')
+                        message = ai_comment.get('message', '')
+                        suggested_code = ai_comment.get('suggested_code', '')
+                        comment_type = ai_comment.get('type', 'suggestion')
+                        
+                        # Find matching line in our parsed diff
+                        matching_line = next((l for l in added_lines if l['line'] == line_num), None)
+                        
+                        if matching_line:
+                            comment_body = message
+                            
+                            # Add suggested change if provided
+                            if suggested_code:
+                                if suggested_code.strip():
+                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n{suggested_code}\n```"
+                                else:
+                                    comment_body += f"\n\n**Suggested change**\n```suggestion\n\n```"
+                            
+                            review_comments.append({
+                                'path': filename,
+                                'line': line_num,
+                                'body': comment_body
+                            })
+                
+                # Post review if we have comments
+                if review_comments:
+                    review_url = f"https://api.github.com/repos/{self.repo}/pulls/{self.pr_number}/reviews"
+                    
+                    review_data = {
+                        'commit_id': commit_sha,
+                        'event': 'COMMENT',
+                        'comments': review_comments
+                    }
+                    
+                    response = requests.post(review_url, headers=headers, json=review_data)
+                    if response.status_code == 200:
+                        print(f"✅ Posted {len(review_comments)} inline suggestions")
+                    else:
+                        print(f"⚠️ Failed to post inline comments: {response.status_code}")
+                else:
+                    print("ℹ️ No issues found - code looks good!")
+
+            def run(self):
+                """Main execution"""
+                print("🤖 Enhanced AI PR Review (Copilot Style)")
+                print("=" * 50)
+                
+                # Validate environment
+                if not all([self.github_token, self.repo, self.pr_number]):
+                    print("❌ Missing required environment variables")
+                    return False
+                
+                try:
+                    # Get PR data
+                    pr_data, files_data = self.get_pr_data()
+                    print(f"📋 Analyzing PR #{self.pr_number} with {len(files_data)} files")
+                    
+                    # Create and post overview comment
+                    overview = self.create_pr_overview(pr_data, files_data)
+                    
+                    comment_url = f"https://api.github.com/repos/{self.repo}/issues/{self.pr_number}/comments"
+                    response = requests.post(
+                        comment_url,
+                        headers=self.get_headers(),
+                        json={'body': overview}
+                    )
+                    
+                    if response.status_code == 201:
+                        print("✅ Posted PR overview comment")
+                    else:
+                        print(f"⚠️ Failed to post overview: {response.status_code}")
+                    
+                    # Create inline review comments
+                    self.create_inline_review(pr_data, files_data)
+                    
+                    print("🎉 Enhanced PR review completed!")
+                    return True
+                    
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return False
+
+        # Run the reviewer
+        if __name__ == "__main__":
+            reviewer = CopilotStyleReviewer()
+            success = reviewer.run()
+            sys.exit(0 if success else 1)
         SCRIPT
 
-    - name: Run PR Overview Test
+    - name: Run Enhanced PR Review
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -217,4 +358,4 @@ jobs:
         GITHUB_REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
-        python pr_overview.py
+        python enhanced_pr_reviewer.py
