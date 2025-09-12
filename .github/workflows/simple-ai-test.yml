@@ -47,20 +47,17 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Simple AI Test
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    - name: Create PR Overview Script
       run: |
-        python3 << 'EOF'
+        cat > pr_overview.py << 'SCRIPT'
         import os
         import sys
         import json
         import requests
         import boto3
+        import re
 
-        print("🧪 Simple AI Review Test")
+        print("🧪 PR Overview AI Test")
         print("=" * 30)
 
         # Check environment
@@ -77,8 +74,8 @@ jobs:
             sys.exit(1)
 
         # Get PR info from environment
-        repo = "${{ github.repository }}"
-        pr_number = ${{ github.event.pull_request.number }}
+        repo = os.environ.get('GITHUB_REPOSITORY')
+        pr_number = os.environ.get('PR_NUMBER')
         
         print(f"Repository: {repo}")
         print(f"PR Number: {pr_number}")
@@ -90,6 +87,15 @@ jobs:
         }
 
         try:
+            # Get PR info
+            pr_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
+            pr_response = requests.get(pr_url, headers=headers)
+            pr_response.raise_for_status()
+            pr_data = pr_response.json()
+            
+            pr_title = pr_data.get('title', 'No title')
+            pr_body = pr_data.get('body', 'No description')
+            
             # Get PR files
             files_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
             response = requests.get(files_url, headers=headers)
@@ -97,67 +103,131 @@ jobs:
             files = response.json()
             
             print(f"📁 Found {len(files)} changed files:")
+            
+            # Analyze changes for overview
+            total_additions = sum(f.get('additions', 0) for f in files)
+            total_deletions = sum(f.get('deletions', 0) for f in files)
+            
+            changed_files_summary = []
+            diff_lines = []
+            
             for file_data in files:
                 filename = file_data.get('filename', '')
                 additions = file_data.get('additions', 0)
-                print(f"  - {filename} (+{additions} lines)")
+                deletions = file_data.get('deletions', 0)
+                status = file_data.get('status', '')
+                patch = file_data.get('patch', '')
                 
-                # Show patch for Python files
-                if filename.endswith('.py') and additions > 0:
-                    patch = file_data.get('patch', '')
-                    print(f"    Patch preview: {patch[:200]}...")
-
-            # Test AWS Bedrock
-            print("\n🤖 Testing AWS Bedrock...")
+                print(f"  - {filename} (+{additions}/-{deletions}) [{status}]")
+                
+                # Store file summary
+                changed_files_summary.append({
+                    'filename': filename,
+                    'additions': additions,
+                    'deletions': deletions,
+                    'status': status
+                })
+                
+                # Extract diff lines for display
+                if patch:
+                    diff_lines.append(f"📄 **{filename}:**")
+                    lines = patch.split('\n')
+                    for line in lines:
+                        if line.startswith('+') and not line.startswith('+++'):
+                            clean_line = line[1:].strip()
+                            diff_lines.append(f"```diff\n+ {clean_line}\n```")
+                        elif line.startswith('-') and not line.startswith('---'):
+                            clean_line = line[1:].strip()
+                            diff_lines.append(f"```diff\n- {clean_line}\n```")
+            
+            # Generate Pull Request Overview
+            file_count = len(files)
+            file_text = "file" if file_count == 1 else "files"
+            add_text = "addition" if total_additions == 1 else "additions"
+            del_text = "deletion" if total_deletions == 1 else "deletions"
+            
+            overview = f"## Pull Request Overview\\n\\n"
+            overview += f"This PR modifies {file_count} {file_text} with {total_additions} {add_text} and {total_deletions} {del_text}.\\n\\n"
+            overview += f"**Title:** {pr_title}\\n\\n"
+            
+            # Add change summary
+            overview += "**Changes Summary:**\\n"
+            for file_summary in changed_files_summary:
+                fname = file_summary['filename']
+                adds = file_summary['additions']
+                dels = file_summary['deletions'] 
+                status = file_summary['status']
+                
+                if status == 'added':
+                    overview += f"- ✅ **Added** `{fname}` with {adds} lines\\n"
+                elif status == 'modified':
+                    overview += f"- 📝 **Modified** `{fname}` (+{adds}/-{dels} lines)\\n"
+                elif status == 'deleted':
+                    overview += f"- ❌ **Deleted** `{fname}`\\n"
+                else:
+                    overview += f"- 🔄 **Changed** `{fname}` (+{adds}/-{dels} lines)\\n"
+            
+            # Add diff content if available
+            if diff_lines:
+                overview += f"\\n## Code Changes\\n\\n"
+                overview += "\\n".join(diff_lines[:10])
+                if len(diff_lines) > 10:
+                    overview += f"\\n\\n*...and {len(diff_lines) - 10} more changes*"
+            
+            # Test AWS Bedrock with first Python file
+            print("🤖 Testing AWS Bedrock...")
             bedrock = boto3.client('bedrock-runtime', region_name='us-east-1')
             
-            # Simple test prompt
-            test_prompt = """Analyze this code:
-            #For test
-            PASSWORD = "secret123"
+            first_py_file = None
+            for file_data in files:
+                if file_data.get('filename', '').endswith('.py') and file_data.get('patch'):
+                    first_py_file = file_data
+                    break
             
-            Respond with JSON:
-            {"comments": [{"line": 1, "message": "Comment needs space", "suggested_code": "# For test"}]}"""
+            ai_analysis = ""
+            if first_py_file:
+                filename = first_py_file['filename']
+                patch = first_py_file['patch']
+                
+                ai_prompt = f"Analyze this Python code change in file: {filename}. DIFF: {patch}. Provide brief analysis focusing on: comment formatting issues, hardcoded secrets, error handling problems, debug code."
+                
+                body = {
+                    "messages": [{"role": "user", "content": [{"text": ai_prompt}]}],
+                    "inferenceConfig": {"maxTokens": 800, "temperature": 0.1}
+                }
+                
+                try:
+                    ai_response = bedrock.invoke_model(
+                        modelId="amazon.nova-micro-v1:0",
+                        body=json.dumps(body),
+                        contentType="application/json"
+                    )
+                    
+                    result = json.loads(ai_response['body'].read())
+                    ai_text = result['output']['message']['content'][0]['text']
+                    print(f"🤖 AI Response: {ai_text[:200]}...")
+                    ai_analysis = f"\\n\\n## 🤖 AI Code Analysis\\n\\n{ai_text}"
+                    
+                except Exception as ai_error:
+                    print(f"⚠️ AI analysis failed: {ai_error}")
+                    ai_analysis = f"\\n\\n## 🤖 AI Analysis\\n\\n⚠️ AI analysis unavailable: {str(ai_error)}"
             
-            body = {
-                "messages": [{"role": "user", "content": [{"text": test_prompt}]}],
-                "inferenceConfig": {"maxTokens": 500, "temperature": 0.1}
-            }
+            # Create final comment
+            comment_url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+            final_comment = overview + ai_analysis + "\\n\\n---\\n*Generated by GitHub Copilot-style AI Reviewer* 🤖"
             
-            ai_response = bedrock.invoke_model(
-                modelId="amazon.nova-micro-v1:0",
-                body=json.dumps(body),
-                contentType="application/json"
+            comment_response = requests.post(
+                comment_url,
+                headers=headers,
+                json={'body': final_comment}
             )
             
-            result = json.loads(ai_response['body'].read())
-            ai_text = result['output']['message']['content'][0]['text']
-            
-            print(f"🤖 AI Response: {ai_text[:200]}...")
-            
-            # Post a simple test comment
-            if len(files) > 0:
-                comment_url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
-                comment_body = f"""🧪 **AI Review Test Results**
-                
-                ✅ GitHub API: Working
-                ✅ AWS Bedrock: Working  
-                ✅ Found {len(files)} files to analyze
-                
-                AI Response Preview: {ai_text[:100]}...
-                
-                *This is a test comment to verify the AI reviewer is working.*"""
-                
-                comment_response = requests.post(
-                    comment_url,
-                    headers=headers,
-                    json={'body': comment_body}
-                )
-                
-                if comment_response.status_code == 201:
-                    print("✅ Posted test comment successfully!")
-                else:
-                    print(f"❌ Failed to post comment: {comment_response.status_code}")
+            if comment_response.status_code == 201:
+                print("✅ Posted GitHub Copilot-style PR overview!")
+                print(f"📝 Comment length: {len(final_comment)} characters")
+            else:
+                print(f"❌ Failed to post comment: {comment_response.status_code}")
+                print(f"Response: {comment_response.text}")
 
         except Exception as e:
             print(f"❌ Error: {e}")
@@ -165,5 +235,15 @@ jobs:
             traceback.print_exc()
             sys.exit(1)
 
-        print("✅ Simple AI test completed!")
-        EOF
+        print("✅ GitHub Copilot-style test completed!")
+        SCRIPT
+
+    - name: Run PR Overview Test
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        python pr_overview.py
