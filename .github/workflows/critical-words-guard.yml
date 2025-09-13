@@ -5,7 +5,48 @@
 #
 # FEATURES:
 # - Scans all comments in changed files
-# - Configurable word lists and thresholds
+# - Configurable word lis            # First, show ALL comments found
+            if file_analysis:
+                total_comments_all_files = sum(analysis['comments_count'] for analysis in file_analysis.values())
+                if total_comments_all_files > 0:
+                    report_parts.extend([
+                        "## 💬 **All Comments Found:**",
+                        f"*Total: {total_comments_all_files} comments across all files*",
+                        ""
+                    ])
+                    
+                    # Show all comments by file
+                    for filename, analysis in file_analysis.items():
+                        if analysis['comments_count'] > 0:
+                            report_parts.append(f"**{filename}** - {analysis['comments_count']} comments:")
+                            
+                            # Show each comment
+                            for comment in analysis['all_comments'][:10]:  # Limit to 10 comments per file
+                                comment_text = comment['text']
+                                line_num = comment['line']
+                                
+                                # Truncate long comments
+                                display_text = comment_text[:100] + "..." if len(comment_text) > 100 else comment_text
+                                report_parts.append(f"- Line {line_num}: \"{display_text}\"")
+                            
+                            if len(analysis['all_comments']) > 10:
+                                report_parts.append(f"- ... and {len(analysis['all_comments']) - 10} more comments")
+                            
+                            report_parts.append("")
+            
+            # Then, show breakdown by category for critical words only
+            if critical_words_found:
+                report_parts.extend([
+                    "## 🚨 **Critical Words Found in Comments:**",
+                    f"*Found {total_critical_words} critical words in the comments above*",
+                    ""
+                ])
+                
+                for category, words_list in critical_words_found.items():
+                    if words_list:
+                        category_name = category.replace('_', ' ').title()
+                        report_parts.extend([
+                            f"### 🔍 {category_name} ({len(words_list)} found):",holds
 # - Blocks merge with clear explanations
 # - Provides detailed reports of found issues
 
@@ -216,6 +257,7 @@ jobs:
                     'comments_count': len(comments_found),
                     'critical_words_count': file_critical_count,
                     'critical_words_by_category': file_critical_words,
+                    'all_comments': comments_found,  # Store all comments
                     'status': status
                 }
                 
@@ -374,7 +416,7 @@ jobs:
                     headers=headers,
                     json={
                         'state': 'failure',
-                        'description': f'Too many critical words in comments ({total_critical_words}). Review comments before merge.',
+                        'description': f'Too many critical words in comments ({total_critical_words}/{total_comments} comments). Review comments before merge.',
                         'context': 'Critical Words Guard'
                     }
                 )
@@ -387,7 +429,7 @@ jobs:
                     headers=headers,
                     json={
                         'state': 'success',
-                        'description': f'Warning: {total_critical_words} critical words found. Review recommended.',
+                        'description': f'Warning: {total_critical_words} critical words in {total_comments} comments. Review recommended.',
                         'context': 'Critical Words Guard'
                     }
                 )
@@ -399,7 +441,7 @@ jobs:
                     headers=headers,
                     json={
                         'state': 'success',
-                        'description': f'Clean code - only {total_critical_words} critical words found.',
+                        'description': f'Clean comments - {total_critical_words} critical words in {total_comments} total comments.',
                         'context': 'Critical Words Guard'
                     }
                 )
