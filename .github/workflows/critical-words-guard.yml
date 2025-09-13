@@ -212,40 +212,54 @@ jobs:
                         line_content_lower = line_content.lower()
                         
                         # Skip very short lines and empty lines
-                        if len(line_content.strip()) > 3:
+                        if len(line_content.strip()) > 3 and not comment_text:
+                            # Collect all critical words found on this line to avoid duplicates
+                            line_critical_words = set()
+                            
                             for category, words in CRITICAL_WORDS.items():
                                 for word in words:
                                     # Check if critical word appears in the code
                                     if word in line_content_lower:
-                                        # Skip if it's already found in comment (to avoid double counting)
-                                        if not comment_text or word not in comment_text.lower():
-                                            file_critical_count += 1
-                                            
-                                            # Determine context type
-                                            if '=' in line_content and ('"' in line_content or "'" in line_content):
-                                                context_type = "Variable Assignment"
-                                            elif 'function' in line_content.lower() or 'def ' in line_content or 'void ' in line_content:
-                                                context_type = "Function Definition"
-                                            elif 'class ' in line_content or 'struct ' in line_content:
-                                                context_type = "Class/Struct Definition"
-                                            elif '"' in line_content or "'" in line_content:
-                                                context_type = "String Literal"
-                                            else:
-                                                context_type = "Code"
-                                            
-                                            file_critical_words[category].append({
-                                                'word': word,
-                                                'line': line_number,
-                                                'context': f"{context_type}: {line_content.strip()[:80]}..." if len(line_content.strip()) > 80 else f"{context_type}: {line_content.strip()}",
-                                                'type': 'code'
-                                            })
-                                            critical_words_found[category].append({
-                                                'file': filename,
-                                                'word': word,
-                                                'line': line_number,
-                                                'context': line_content.strip(),
-                                                'type': 'code'
-                                            })
+                                        line_critical_words.add((category, word))
+                            
+                            # Process unique critical words found on this line
+                            if line_critical_words:
+                                # Determine context type for this line
+                                if '=' in line_content and ('"' in line_content or "'" in line_content):
+                                    context_type = "Variable Assignment"
+                                elif 'function' in line_content.lower() or 'def ' in line_content or 'void ' in line_content:
+                                    context_type = "Function Definition"
+                                elif 'class ' in line_content or 'struct ' in line_content:
+                                    context_type = "Class/Struct Definition"
+                                elif '"' in line_content or "'" in line_content:
+                                    context_type = "String Literal"
+                                else:
+                                    context_type = "Code"
+                                
+                                # Create combined context showing all words found on this line
+                                words_list = [word for _, word in line_critical_words]
+                                combined_context = f"{context_type}: {', '.join(words_list)} in \"{line_content.strip()[:60]}...\""
+                                
+                                # Add one entry per line (not per word) to avoid repetition
+                                for category, word in line_critical_words:
+                                    file_critical_words[category].append({
+                                        'word': word,
+                                        'line': line_number,
+                                        'context': combined_context,
+                                        'type': 'code',
+                                        'all_words_on_line': words_list
+                                    })
+                                    critical_words_found[category].append({
+                                        'file': filename,
+                                        'word': word,
+                                        'line': line_number,
+                                        'context': line_content.strip(),
+                                        'type': 'code',
+                                        'all_words_on_line': words_list
+                                    })
+                                
+                                # Count this line only once, regardless of how many words found
+                                file_critical_count += 1
                     
                     elif line.startswith(' '):
                         line_number += 1
@@ -323,15 +337,49 @@ jobs:
                         for word_info in words_list:
                             files_with_words[word_info['file']].append(word_info)
                         
+                        if critical_words_found[category]:
+                        files_with_words = {}
+                        for word_info in critical_words_found[category]:
+                            file = word_info['file']
+                            if file not in files_with_words:
+                                files_with_words[file] = []
+                            files_with_words[file].append(word_info)
+                        
+                        # Group by file and line to avoid duplicates
                         for file, file_words in files_with_words.items():
                             report_parts.append(f"**{file}:**")
-                            for word_info in file_words[:5]:  # Limit to 5 per file
-                                word_type = "💬" if word_info['type'] == 'comment' else "💻"
-                                context_text = word_info.get('context', word_info.get('comment', 'Unknown context'))
-                                report_parts.append(f"- Line {word_info['line']}: {word_type} `{word_info['word']}` in \"{context_text[:80]}...\"")
                             
-                            if len(file_words) > 5:
-                                report_parts.append(f"- ... and {len(file_words) - 5} more")
+                            # Group by line number to show multiple words on same line together
+                            lines_dict = {}
+                            for word_info in file_words:
+                                line_num = word_info['line']
+                                if line_num not in lines_dict:
+                                    lines_dict[line_num] = {
+                                        'words': [],
+                                        'type': word_info['type'],
+                                        'context': word_info.get('context', ''),
+                                        'all_words_on_line': word_info.get('all_words_on_line', [word_info['word']])
+                                    }
+                                lines_dict[line_num]['words'].append(word_info['word'])
+                            
+                            # Show unique lines (not duplicate words)
+                            for line_num in sorted(lines_dict.keys())[:5]:  # Limit to 5 lines per file
+                                line_info = lines_dict[line_num]
+                                word_type = "💬" if line_info['type'] == 'comment' else "💻"
+                                
+                                # Show all critical words found on this line
+                                unique_words = list(set(line_info['all_words_on_line']))
+                                words_text = ', '.join(unique_words)
+                                
+                                context_text = line_info['context']
+                                if context_text.startswith('Variable Assignment:') or context_text.startswith('Function Definition:'):
+                                    # Extract just the code part
+                                    context_text = context_text.split(': ', 1)[1] if ': ' in context_text else context_text
+                                
+                                report_parts.append(f"- Line {line_num}: {word_type} `{words_text}` in \"{context_text[:80]}...\"")
+                            
+                            if len(lines_dict) > 5:
+                                report_parts.append(f"- ... and {len(lines_dict) - 5} more lines")
                             report_parts.append("")
             
             # Add file-by-file analysis
