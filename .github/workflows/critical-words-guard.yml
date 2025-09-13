@@ -323,10 +323,40 @@ jobs:
                     ""
                 ])
             
-            # Add breakdown by category
+            # First, show ALL comments found
+            if file_analysis:
+                total_comments_all_files = sum(analysis['comments_count'] for analysis in file_analysis.values())
+                if total_comments_all_files > 0:
+                    report_parts.extend([
+                        "## 💬 **All Comments Found:**",
+                        f"*Total: {total_comments_all_files} comments across all files*",
+                        ""
+                    ])
+                    
+                    # Show all comments by file
+                    for filename, analysis in file_analysis.items():
+                        if analysis['comments_count'] > 0:
+                            report_parts.append(f"**{filename}** - {analysis['comments_count']} comments:")
+                            
+                            # Show each comment
+                            for comment in analysis['all_comments'][:10]:  # Limit to 10 comments per file
+                                comment_text = comment['text']
+                                line_num = comment['line']
+                                
+                                # Truncate long comments
+                                display_text = comment_text[:100] + "..." if len(comment_text) > 100 else comment_text
+                                report_parts.append(f"- Line {line_num}: \"{display_text}\"")
+                            
+                            if len(analysis['all_comments']) > 10:
+                                report_parts.append(f"- ... and {len(analysis['all_comments']) - 10} more comments")
+                            
+                            report_parts.append("")
+            
+            # Then, show breakdown by category for critical words only
             if critical_words_found:
                 report_parts.extend([
-                    "## 📊 **Critical Words Found in Comments:**",
+                    "## � **Critical Words Found in Comments:**",
+                    f"*Found {total_critical_words} critical words in the comments above*",
                     ""
                 ])
                 
@@ -413,16 +443,62 @@ jobs:
             
             # Post comment
             comment_text = "\n".join(report_parts)
-            comment_response = requests.post(
-                f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
-                headers=headers,
-                json={'body': comment_text}
-            )
             
-            if comment_response.status_code == 201:
-                print("✅ Posted analysis report")
-            else:
-                print(f"⚠️ Failed to post comment: {comment_response.status_code}")
+            # Check comment length (GitHub limit is ~65,536 characters)
+            if len(comment_text) > 65000:
+                print(f"⚠️ Comment too long ({len(comment_text)} chars), truncating...")
+                comment_text = comment_text[:65000] + "\n\n*[Comment truncated due to length]*"
+            
+            print(f"📝 Attempting to post comment to PR #{pr_number}")
+            print(f"🔗 URL: https://api.github.com/repos/{repo}/issues/{pr_number}/comments")
+            print(f"📊 Comment length: {len(comment_text)} characters")
+            
+            try:
+                comment_response = requests.post(
+                    f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+                    headers=headers,
+                    json={'body': comment_text},
+                    timeout=30  # Add timeout
+                )
+                
+                if comment_response.status_code == 201:
+                    print("✅ Posted analysis report successfully")
+                else:
+                    print(f"⚠️ Failed to post comment: {comment_response.status_code}")
+                    print(f"📄 Response: {comment_response.text[:500]}...")
+                    
+                    # Try to get more details about the error
+                    try:
+                        error_data = comment_response.json()
+                        print(f"🔍 Error details: {error_data}")
+                    except:
+                        print("🔍 Could not parse error response as JSON")
+                        
+                    # Try a simple test comment as fallback
+                    print("🔄 Trying fallback simple comment...")
+                    fallback_response = requests.post(
+                        f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+                        headers=headers,
+                        json={'body': f"🤖 **Critical Words Guard Analysis**\n\n📊 Found {total_critical_words} critical words in {total_comments} comments.\n\n*Full report failed to post - check Actions logs for details.*"}
+                    )
+                    if fallback_response.status_code == 201:
+                        print("✅ Posted fallback comment successfully")
+                    else:
+                        print(f"❌ Fallback comment also failed: {fallback_response.status_code}")
+            
+            except Exception as e:
+                print(f"❌ Exception while posting comment: {e}")
+                # Try minimal comment
+                try:
+                    minimal_response = requests.post(
+                        f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+                        headers=headers,
+                        json={'body': f"🤖 Critical Words Guard: {total_critical_words} critical words found. Check Actions log."}
+                    )
+                    if minimal_response.status_code == 201:
+                        print("✅ Posted minimal comment successfully")
+                except:
+                    print("❌ All comment posting attempts failed")
             
             # Set commit status to block merge if needed
             if should_block:
