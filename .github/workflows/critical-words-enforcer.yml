@@ -1,0 +1,494 @@
+# 🚨 Critical Words Enforcer
+# 
+# This workflow FAILS the PR if critical words are found in comments
+# Provides clear feedback and suggestions for improvement
+#
+# FEATURES:
+# - Strict enforcement: FAILS when critical words detected
+# - Clear suggestions for fixing issues
+# - Detailed analysis of all comments
+# - Configurable thresholds and word lists
+
+name: Critical Words Enforcer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ main, master, develop ]
+
+jobs:
+  enforce-critical-words:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+      checks: write
+      statuses: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
+
+    - name: Critical Words Enforcement Check
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        python3 << 'EOF'
+        import os, sys, json, requests, re
+        from collections import defaultdict, Counter
+
+        print("🚨 Critical Words Enforcer - Analyzing PR for Critical Words")
+        print("=" * 60)
+        
+        # STRICT CONFIGURATION - CUSTOMIZE THESE VALUES
+        CRITICAL_THRESHOLD = 1   # FAIL if >= 1 critical word found (strict enforcement)
+        WARNING_THRESHOLD = 0    # No warnings, only pass/fail
+        
+        # CRITICAL WORDS CATEGORIES - Add your problematic words here
+        CRITICAL_WORDS = {
+            'security_risks': [
+                'password', 'secret', 'token', 'api_key', 'private_key',
+                'hardcode', 'hardcoded', 'credential', 'auth_token',
+                'access_key', 'secret_key', 'encryption_key', 'bearer_token',
+                'client_secret', 'app_secret', 'oauth_secret'
+            ],
+            'code_smells': [
+                'hack', 'workaround', 'quick_fix', 'temporary', 'temp_fix',
+                'dirty', 'ugly', 'mess', 'broken', 'bad_code',
+                'technical_debt', 'debt', 'kludge', 'bodge', 'spaghetti'
+            ],
+            'development_issues': [
+                'todo', 'fixme', 'bug', 'error', 'issue', 'problem',
+                'broken', 'fail', 'crash', 'exception', 'warning',
+                'debug', 'test_only', 'not_working', 'incomplete'
+            ],
+            'security_vulnerabilities': [
+                'vulnerability', 'exploit', 'injection', 'xss', 'csrf',
+                'buffer_overflow', 'sql_injection', 'code_injection',
+                'path_traversal', 'unsafe', 'insecure', 'weak'
+            ],
+            'performance_issues': [
+                'slow', 'performance', 'bottleneck', 'memory_leak',
+                'inefficient', 'optimization_needed', 'lag', 'timeout',
+                'deadlock', 'race_condition', 'blocking'
+            ],
+            'quality_issues': [
+                'deprecated', 'obsolete', 'legacy', 'old_code',
+                'refactor_needed', 'cleanup', 'messy', 'duplicate', 
+                'redundant', 'unused', 'remove_me'
+            ]
+        }
+
+        # IMPROVEMENT SUGGESTIONS FOR EACH CATEGORY
+        SUGGESTIONS = {
+            'security_risks': [
+                "🔒 Move secrets to environment variables or secure vaults",
+                "🔐 Use configuration files with proper access controls", 
+                "🛡️ Implement proper authentication mechanisms",
+                "📝 Document security requirements in separate files"
+            ],
+            'code_smells': [
+                "🧹 Refactor the code to remove temporary fixes",
+                "📚 Replace workarounds with proper solutions",
+                "🔧 Create proper abstractions instead of hacks",
+                "📋 Create tickets for technical debt resolution"
+            ],
+            'development_issues': [
+                "✅ Complete TODO items before merging",
+                "🐛 Fix bugs and address FIXME comments",
+                "📋 Create proper tickets for unfinished work",
+                "🧪 Remove debug comments from production code"
+            ],
+            'security_vulnerabilities': [
+                "🛡️ Address security vulnerabilities immediately",
+                "🔍 Perform security audit and penetration testing",
+                "📖 Follow secure coding best practices",
+                "🚨 Escalate critical security issues to security team"
+            ],
+            'performance_issues': [
+                "⚡ Optimize performance bottlenecks",
+                "📊 Profile and measure performance improvements",
+                "🔧 Implement proper caching strategies",
+                "📈 Monitor performance metrics in production"
+            ],
+            'quality_issues': [
+                "🧹 Clean up deprecated and obsolete code",
+                "📚 Update to modern coding standards",
+                "🔄 Refactor duplicated code into reusable components",
+                "📝 Document legacy code replacement plans"
+            ]
+        }
+        
+        # Get GitHub details
+        github_token = os.environ.get('GITHUB_TOKEN')
+        repo = os.environ.get('GITHUB_REPOSITORY')
+        pr_number = os.environ.get('PR_NUMBER')
+        github_sha = os.environ.get('GITHUB_SHA')
+        
+        print(f"🔍 Environment Check:")
+        print(f"  - Repository: {repo}")
+        print(f"  - PR Number: {pr_number}")
+        print(f"  - SHA: {github_sha}")
+        print(f"  - Token: {'✅ Present' if github_token else '❌ Missing'}")
+        
+        if not all([github_token, repo, pr_number, github_sha]):
+            print("\n❌ FAILED: Missing required environment variables")
+            sys.exit(1)
+        
+        headers = {
+            'Authorization': f'token {github_token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        
+        try:
+            # Get PR files
+            print(f"\n🔍 Fetching PR files...")
+            files_response = requests.get(
+                f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files",
+                headers=headers
+            )
+            
+            if files_response.status_code != 200:
+                print(f"❌ FAILED: Cannot get PR files (status: {files_response.status_code})")
+                sys.exit(1)
+            
+            files_data = files_response.json()
+            print(f"📂 Found {len(files_data)} files to analyze")
+            
+            # Analysis results
+            total_critical_words = 0
+            total_comments = 0
+            critical_words_found = defaultdict(list)
+            file_analysis = {}
+            
+            # Analyze each file
+            for file_data in files_data:
+                filename = file_data.get('filename', '')
+                patch = file_data.get('patch', '')
+                status = file_data.get('status', '')
+                
+                if not patch:
+                    continue
+                
+                print(f"📄 Analyzing: {filename}")
+                
+                # Extract comments from different file types
+                comments_found = []
+                file_critical_count = 0
+                file_critical_words = defaultdict(list)
+                
+                lines = patch.split('\n')
+                line_number = 0
+                
+                for line in lines:
+                    if line.startswith('@@'):
+                        # Extract starting line number from diff header
+                        match = re.match(r'@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@', line)
+                        if match:
+                            line_number = int(match.group(1)) - 1
+                    elif line.startswith('+') and not line.startswith('+++'):
+                        line_number += 1
+                        line_content = line[1:].strip()
+                        
+                        # Extract comments based on file type
+                        comment_text = ""
+                        
+                        # Python, Shell, Ruby comments (#)
+                        if re.match(r'^\s*#(.+)', line_content):
+                            comment_text = re.match(r'^\s*#(.+)', line_content).group(1).strip()
+                        
+                        # C/C++, Java, JavaScript, C# comments (//)
+                        elif re.match(r'^\s*//(.+)', line_content):
+                            comment_text = re.match(r'^\s*//(.+)', line_content).group(1).strip()
+                        
+                        # Block comments (/* ... */)
+                        elif re.match(r'^\s*/\*(.+)\*/', line_content):
+                            comment_text = re.match(r'^\s*/\*(.+)\*/', line_content).group(1).strip()
+                        
+                        # HTML comments (<!-- ... -->)
+                        elif re.match(r'^\s*<!--(.+)-->', line_content):
+                            comment_text = re.match(r'^\s*<!--(.+)-->', line_content).group(1).strip()
+                        
+                        # SQL comments (--)
+                        elif re.match(r'^\s*--(.+)', line_content):
+                            comment_text = re.match(r'^\s*--(.+)', line_content).group(1).strip()
+                        
+                        if comment_text:
+                            comments_found.append({
+                                'line': line_number,
+                                'text': comment_text,
+                                'full_line': line_content
+                            })
+                            
+                            # Check for critical words in this comment
+                            comment_lower = comment_text.lower()
+                            
+                            for category, words in CRITICAL_WORDS.items():
+                                for word in words:
+                                    if word in comment_lower:
+                                        file_critical_count += 1
+                                        critical_words_found[category].append({
+                                            'file': filename,
+                                            'word': word,
+                                            'line': line_number,
+                                            'context': comment_text,
+                                            'category': category
+                                        })
+                    
+                    elif line.startswith(' '):
+                        line_number += 1
+                
+                # Store file analysis
+                file_analysis[filename] = {
+                    'comments_count': len(comments_found),
+                    'critical_words_count': file_critical_count,
+                    'all_comments': comments_found,
+                    'status': status
+                }
+                
+                total_critical_words += file_critical_count
+                total_comments += len(comments_found)
+                
+                if file_critical_count > 0:
+                    print(f"  🚨 {file_critical_count} critical words found in {len(comments_found)} comments")
+                else:
+                    print(f"  ✅ Clean - {len(comments_found)} comments analyzed")
+            
+            # Determine final result
+            has_critical_words = total_critical_words >= CRITICAL_THRESHOLD
+            
+            print(f"\n" + "=" * 60)
+            print(f"📊 ANALYSIS RESULTS:")
+            print(f"💬 Total comments analyzed: {total_comments}")
+            print(f"🚨 Critical words found: {total_critical_words}")
+            print(f"📏 Threshold for failure: {CRITICAL_THRESHOLD}")
+            
+            if has_critical_words:
+                print(f"❌ RESULT: FAILED - Critical words detected!")
+            else:
+                print(f"✅ RESULT: PASSED - No critical words found!")
+            
+            # Generate detailed report
+            report_parts = []
+            
+            if has_critical_words:
+                report_parts.extend([
+                    "# ❌ **PR FAILED - Critical Words Detected**",
+                    "",
+                    f"🚨 **Found {total_critical_words} critical words in comments that must be addressed before merge.**",
+                    "",
+                    "**This PR cannot be merged until these issues are resolved.**",
+                    ""
+                ])
+            else:
+                report_parts.extend([
+                    "# ✅ **PR PASSED - Clean Comments**",
+                    "",
+                    f"✅ **Analyzed {total_comments} comments - no critical words detected!**",
+                    "",
+                    "Great job maintaining clean, professional comments!",
+                    ""
+                ])
+            
+            # Show all comments for transparency
+            if total_comments > 0:
+                report_parts.extend([
+                    "## 💬 **All Comments Found:**",
+                    f"*Analyzed {total_comments} comments across {len([f for f in file_analysis if file_analysis[f]['comments_count'] > 0])} files*",
+                    ""
+                ])
+                
+                for filename, analysis in file_analysis.items():
+                    if analysis['comments_count'] > 0:
+                        icon = "🚨" if analysis['critical_words_count'] > 0 else "✅"
+                        report_parts.append(f"{icon} **{filename}** - {analysis['comments_count']} comments:")
+                        
+                        for comment in analysis['all_comments'][:8]:  # Show up to 8 comments per file
+                            comment_text = comment['text']
+                            line_num = comment['line']
+                            
+                            # Truncate very long comments
+                            display_text = comment_text[:120] + "..." if len(comment_text) > 120 else comment_text
+                            report_parts.append(f"- Line {line_num}: \"{display_text}\"")
+                        
+                        if len(analysis['all_comments']) > 8:
+                            report_parts.append(f"- ... and {len(analysis['all_comments']) - 8} more comments")
+                        
+                        report_parts.append("")
+            
+            # Show critical words breakdown if found
+            if critical_words_found:
+                report_parts.extend([
+                    "## 🚨 **Critical Words Breakdown:**",
+                    ""
+                ])
+                
+                for category, words_list in critical_words_found.items():
+                    if words_list:
+                        category_name = category.replace('_', ' ').title()
+                        report_parts.extend([
+                            f"### 🔍 {category_name} ({len(words_list)} found)",
+                            ""
+                        ])
+                        
+                        # Group by file
+                        files_with_words = defaultdict(list)
+                        for word_info in words_list:
+                            files_with_words[word_info['file']].append(word_info)
+                        
+                        for file, file_words in files_with_words.items():
+                            report_parts.append(f"**📁 {file}:**")
+                            
+                            for word_info in file_words[:6]:  # Show up to 6 per file
+                                context = word_info['context']
+                                word = word_info['word']
+                                line_num = word_info['line']
+                                
+                                display_context = context[:80] + "..." if len(context) > 80 else context
+                                report_parts.append(f"- Line {line_num}: `{word}` in \"{display_context}\"")
+                            
+                            if len(file_words) > 6:
+                                report_parts.append(f"- ... and {len(file_words) - 6} more")
+                            report_parts.append("")
+            
+            # Add suggestions for improvement
+            if has_critical_words:
+                report_parts.extend([
+                    "## 💡 **Required Actions to Fix:**",
+                    ""
+                ])
+                
+                # Add specific suggestions based on categories found
+                categories_found = set(critical_words_found.keys())
+                suggestion_added = False
+                
+                for category in categories_found:
+                    if category in SUGGESTIONS:
+                        category_name = category.replace('_', ' ').title()
+                        report_parts.append(f"**{category_name} Issues:**")
+                        for suggestion in SUGGESTIONS[category]:
+                            report_parts.append(f"- {suggestion}")
+                        report_parts.append("")
+                        suggestion_added = True
+                
+                if not suggestion_added:
+                    report_parts.extend([
+                        "- 🧹 Remove or rephrase problematic comments",
+                        "- 📝 Replace with professional documentation",
+                        "- 🎯 Focus on clean, meaningful comments",
+                        ""
+                    ])
+                
+                report_parts.extend([
+                    "### 🔄 **How to Fix:**",
+                    "1. 🔍 Review each flagged comment above",
+                    "2. 🧹 Remove, fix, or rephrase problematic comments", 
+                    "3. 📝 Replace with professional documentation if needed",
+                    "4. 🔄 Push changes and wait for re-analysis",
+                    "5. ✅ PR will automatically pass once issues are resolved",
+                    ""
+                ])
+            else:
+                report_parts.extend([
+                    "## 🎉 **Excellent Work!**",
+                    "",
+                    "- ✅ All comments are clean and professional",
+                    "- 📝 No problematic words detected",
+                    "- 🚀 Ready for code review and merge",
+                    ""
+                ])
+            
+            report_parts.extend([
+                "---",
+                f"🤖 **Critical Words Enforcer** | Analyzed: {total_comments} comments | Critical: {total_critical_words} | Status: {'❌ FAILED' if has_critical_words else '✅ PASSED'}"
+            ])
+            
+            # Post the analysis comment
+            comment_text = "\n".join(report_parts)
+            
+            # Ensure comment isn't too long
+            if len(comment_text) > 65000:
+                comment_text = comment_text[:65000] + "\n\n*[Report truncated due to length - check Actions log for details]*"
+            
+            print(f"\n📝 Posting analysis report...")
+            comment_response = requests.post(
+                f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+                headers=headers,
+                json={'body': comment_text}
+            )
+            
+            if comment_response.status_code == 201:
+                print("✅ Analysis report posted successfully")
+            else:
+                print(f"⚠️ Failed to post comment: {comment_response.status_code}")
+                # Try minimal fallback
+                fallback_text = f"🤖 **Critical Words Enforcer**\n\n{'❌ FAILED' if has_critical_words else '✅ PASSED'}: Found {total_critical_words} critical words in {total_comments} comments.\n\nCheck Actions log for full details."
+                requests.post(f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments", headers=headers, json={'body': fallback_text})
+            
+            # Set commit status (but don't fail the workflow)
+            if has_critical_words:
+                status_response = requests.post(
+                    f"https://api.github.com/repos/{repo}/statuses/{github_sha}",
+                    headers=headers,
+                    json={
+                        'state': 'failure',
+                        'description': f'FAILED: {total_critical_words} critical words found in comments. Review and fix before merge.',
+                        'context': 'Critical Words Enforcer'
+                    }
+                )
+                print("🚫 Status set to FAILURE - merge blocked")
+                print(f"❌ ENFORCER FAILED: {total_critical_words} critical words must be fixed!")
+                print("✅ Action completed successfully (status marked as failed)")
+                # Don't exit with failure - let action succeed but status shows failed
+            else:
+                status_response = requests.post(
+                    f"https://api.github.com/repos/{repo}/statuses/{github_sha}",
+                    headers=headers,
+                    json={
+                        'state': 'success',
+                        'description': f'PASSED: Clean comments - {total_comments} analyzed, no critical words found.',
+                        'context': 'Critical Words Enforcer'
+                    }
+                )
+                print("✅ Status set to SUCCESS - merge allowed")
+                print(f"🎉 ENFORCER PASSED: Clean comments detected!")
+                print("✅ Action completed successfully")
+            
+        except Exception as e:
+            print(f"❌ CRITICAL ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Set error status but don't fail the action
+            try:
+                requests.post(
+                    f"https://api.github.com/repos/{repo}/statuses/{github_sha}",
+                    headers=headers,
+                    json={
+                        'state': 'error',
+                        'description': 'Critical Words Enforcer encountered an error.',
+                        'context': 'Critical Words Enforcer'
+                    }
+                )
+                print("⚠️ Status set to ERROR due to exception")
+                print("✅ Action completed (with error status)")
+            except:
+                print("❌ Could not set error status")
+            
+            # Don't exit with failure - let action complete but show error status
+        EOF
