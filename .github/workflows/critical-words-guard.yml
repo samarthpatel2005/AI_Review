@@ -333,13 +333,8 @@ jobs:
                         ])
                         
                         # Group by file
-                        files_with_words = defaultdict(list)
-                        for word_info in words_list:
-                            files_with_words[word_info['file']].append(word_info)
-                        
-                        if critical_words_found[category]:
                         files_with_words = {}
-                        for word_info in critical_words_found[category]:
+                        for word_info in words_list:
                             file = word_info['file']
                             if file not in files_with_words:
                                 files_with_words[file] = []
@@ -380,6 +375,7 @@ jobs:
                             
                             if len(lines_dict) > 5:
                                 report_parts.append(f"- ... and {len(lines_dict) - 5} more lines")
+                            report_parts.append("")
                             report_parts.append("")
             
             # Add file-by-file analysis
