@@ -122,19 +122,6 @@ jobs:
                 else:
                     overview_parts.append(f"• **Changed** `{filename}`")
             
-            # Add code diff
-            overview_parts.extend(["", "### Code Changes"])
-            for file_data in files_data:
-                filename = file_data.get('filename', '')
-                patch = file_data.get('patch', '')
-                if patch:
-                    overview_parts.extend([f"", f"**{filename}**", "```diff"])
-                    for line in patch.split('\n'):
-                        if not line.startswith('@@') and not line.startswith('+++') and not line.startswith('---'):
-                            if line.startswith(('+', '-', ' ')):
-                                overview_parts.append(line)
-                    overview_parts.append("```")
-            
             # Add Copilot tip
             overview_parts.extend([
                 "",
