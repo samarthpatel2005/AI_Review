@@ -355,7 +355,7 @@ jobs:
             # Then, show breakdown by category for critical words only
             if critical_words_found:
                 report_parts.extend([
-                    "## � **Critical Words Found in Comments:**",
+                    "##   **Critical Words Found in Comments:**",
                     f"*Found {total_critical_words} critical words in the comments above*",
                     ""
                 ])
@@ -364,7 +364,7 @@ jobs:
                     if words_list:
                         category_name = category.replace('_', ' ').title()
                         report_parts.extend([
-                            f"### � {category_name} ({len(words_list)} found):",
+                            f"###   {category_name} ({len(words_list)} found):",
                             ""
                         ])
                         
