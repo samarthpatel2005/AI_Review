@@ -87,12 +87,19 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
+        GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
       run: |
         python3 << 'EOF'
         import os, sys, json, requests, re
         from collections import defaultdict, Counter
 
         print("🚫 Critical Words Merge Guard - Analyzing PR")
+        print(f"🔍 Debug Info:")
+        print(f"  - GITHUB_TOKEN: {'✅ Set' if os.environ.get('GITHUB_TOKEN') else '❌ Missing'}")
+        print(f"  - GITHUB_REPOSITORY: {os.environ.get('GITHUB_REPOSITORY', '❌ Missing')}")
+        print(f"  - PR_NUMBER: {os.environ.get('PR_NUMBER', '❌ Missing')}")
+        print(f"  - GITHUB_SHA: {os.environ.get('GITHUB_SHA', '❌ Missing')}")
+        print("")
         
         # Configuration - CUSTOMIZE THESE VALUES
         CRITICAL_THRESHOLD = 10  # Block merge if >= 10 critical words found
@@ -138,8 +145,16 @@ jobs:
         repo = os.environ.get('GITHUB_REPOSITORY')
         pr_number = os.environ.get('PR_NUMBER')
         
+        print(f"🔍 Environment Check:")
+        print(f"  - GitHub Token: {'✅' if github_token else '❌'}")
+        print(f"  - Repository: {repo}")
+        print(f"  - PR Number: {pr_number}")
+        
         if not all([github_token, repo, pr_number]):
             print("❌ Missing required environment variables")
+            print(f"  - GITHUB_TOKEN: {'✅' if github_token else '❌'}")
+            print(f"  - GITHUB_REPOSITORY: {'✅' if repo else '❌'}")
+            print(f"  - PR_NUMBER: {'✅' if pr_number else '❌'}")
             sys.exit(1)
         
         headers = {
