@@ -182,7 +182,8 @@ jobs:
                             comments_found.append({
                                 'line': line_number,
                                 'text': comment_text,
-                                'full_line': line_content
+                                'full_line': line_content,
+                                'type': 'comment'
                             })
                             
                             # Check for critical words in this comment
@@ -195,14 +196,56 @@ jobs:
                                         file_critical_words[category].append({
                                             'word': word,
                                             'line': line_number,
-                                            'comment': comment_text[:100] + "..." if len(comment_text) > 100 else comment_text
+                                            'context': f"Comment: {comment_text[:80]}..." if len(comment_text) > 80 else f"Comment: {comment_text}",
+                                            'type': 'comment'
                                         })
                                         critical_words_found[category].append({
                                             'file': filename,
                                             'word': word,
                                             'line': line_number,
-                                            'comment': comment_text
+                                            'context': comment_text,
+                                            'type': 'comment'
                                         })
+                        
+                        # ENHANCED: Also analyze the actual CODE content (not just comments)
+                        # This will catch critical words in variable names, strings, function names, etc.
+                        line_content_lower = line_content.lower()
+                        
+                        # Skip very short lines and empty lines
+                        if len(line_content.strip()) > 3:
+                            for category, words in CRITICAL_WORDS.items():
+                                for word in words:
+                                    # Check if critical word appears in the code
+                                    if word in line_content_lower:
+                                        # Skip if it's already found in comment (to avoid double counting)
+                                        if not comment_text or word not in comment_text.lower():
+                                            file_critical_count += 1
+                                            
+                                            # Determine context type
+                                            if '=' in line_content and ('"' in line_content or "'" in line_content):
+                                                context_type = "Variable Assignment"
+                                            elif 'function' in line_content.lower() or 'def ' in line_content or 'void ' in line_content:
+                                                context_type = "Function Definition"
+                                            elif 'class ' in line_content or 'struct ' in line_content:
+                                                context_type = "Class/Struct Definition"
+                                            elif '"' in line_content or "'" in line_content:
+                                                context_type = "String Literal"
+                                            else:
+                                                context_type = "Code"
+                                            
+                                            file_critical_words[category].append({
+                                                'word': word,
+                                                'line': line_number,
+                                                'context': f"{context_type}: {line_content.strip()[:80]}..." if len(line_content.strip()) > 80 else f"{context_type}: {line_content.strip()}",
+                                                'type': 'code'
+                                            })
+                                            critical_words_found[category].append({
+                                                'file': filename,
+                                                'word': word,
+                                                'line': line_number,
+                                                'context': line_content.strip(),
+                                                'type': 'code'
+                                            })
                     
                     elif line.startswith(' '):
                         line_number += 1
@@ -283,7 +326,9 @@ jobs:
                         for file, file_words in files_with_words.items():
                             report_parts.append(f"**{file}:**")
                             for word_info in file_words[:5]:  # Limit to 5 per file
-                                report_parts.append(f"- Line {word_info['line']}: `{word_info['word']}` in \"{word_info['comment'][:80]}...\"")
+                                word_type = "💬" if word_info['type'] == 'comment' else "💻"
+                                context_text = word_info.get('context', word_info.get('comment', 'Unknown context'))
+                                report_parts.append(f"- Line {word_info['line']}: {word_type} `{word_info['word']}` in \"{context_text[:80]}...\"")
                             
                             if len(file_words) > 5:
                                 report_parts.append(f"- ... and {len(file_words) - 5} more")
@@ -299,7 +344,19 @@ jobs:
                 for filename, analysis in file_analysis.items():
                     if analysis['critical_words_count'] > 0:
                         icon = "🚨" if analysis['critical_words_count'] >= 5 else "⚠️" if analysis['critical_words_count'] >= 2 else "💡"
-                        report_parts.append(f"{icon} **{filename}** ({analysis['status']}): {analysis['critical_words_count']} critical words in {analysis['comments_count']} comments")
+                        report_parts.append(f"{icon} **{filename}** ({analysis['status']}): {analysis['critical_words_count']} critical words (comments + code)")
+                        
+                        # Show breakdown of comment vs code detections
+                        comment_count = sum(1 for cat_words in analysis['critical_words_by_category'].values() 
+                                          for word_info in cat_words if word_info.get('type') == 'comment')
+                        code_count = analysis['critical_words_count'] - comment_count
+                        
+                        if comment_count > 0 and code_count > 0:
+                            report_parts.append(f"  └─ 💬 {comment_count} in comments, 💻 {code_count} in code")
+                        elif comment_count > 0:
+                            report_parts.append(f"  └─ 💬 {comment_count} in comments only")
+                        elif code_count > 0:
+                            report_parts.append(f"  └─ 💻 {code_count} in code only")
             
             # Add recommendations
             report_parts.extend([
