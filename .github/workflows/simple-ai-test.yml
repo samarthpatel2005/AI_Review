@@ -61,6 +61,6 @@ jobs:
         GITHUB_REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         AWS_DEFAULT_REGION: ${{ env.AWS_DEFAULT_REGION }}
-        # CUSTOM_PROMPT: ${{ secrets.CUSTOM_PROMPT }}  # Optional: Uncomment to use custom prompt
+        CUSTOM_PROMPT: ${{ secrets.CUSTOM_PROMPT }}  # Optional: Uncomment to use custom prompt
       run: |
         python3 ai_pr_reviewer.py
