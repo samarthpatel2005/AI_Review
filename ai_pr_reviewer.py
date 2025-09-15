@@ -50,6 +50,7 @@ Environment Variables:
 - AWS_SECRET_ACCESS_KEY: AWS secret key
 - GITHUB_REPOSITORY: Repository name (owner/repo)
 - PR_NUMBER: Pull request number
+- CUSTOM_PROMPT: (Optional) Custom AI analysis prompt - overrides default language-specific prompts
 """
 
 import os
@@ -71,6 +72,13 @@ def main():
     aws_key = os.environ.get('AWS_ACCESS_KEY_ID')
     aws_secret = os.environ.get('AWS_SECRET_ACCESS_KEY')
     aws_region = os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
+    custom_prompt = os.environ.get('CUSTOM_PROMPT')  # New: Optional custom prompt
+
+    # Display prompt configuration
+    if custom_prompt:
+        print(f"🎯 Using CUSTOM PROMPT: {custom_prompt[:100]}{'...' if len(custom_prompt) > 100 else ''}")
+    else:
+        print("🔧 Using DEFAULT language-specific prompts")
 
     # Validate required environment variables
     if not all([github_token, repo, pr_number, aws_key, aws_secret]):
@@ -186,8 +194,8 @@ def main():
                 # Get file extension for language-specific analysis
                 file_ext = filename.split('.')[-1].lower() if '.' in filename else ''
                 
-                # Generate language-specific AI prompt
-                prompt = generate_language_prompt(file_ext, filename, status, patch)
+                # Generate language-specific AI prompt or use custom prompt
+                prompt = generate_language_prompt(file_ext, filename, status, patch, custom_prompt)
                 
                 try:
                     # Call AWS Bedrock API
@@ -257,9 +265,17 @@ def main():
         sys.exit(1)
 
 
-def generate_language_prompt(file_ext, filename, status, patch):
-    """Generate language-specific AI analysis prompts"""
+def generate_language_prompt(file_ext, filename, status, patch, custom_prompt=None):
+    """Generate language-specific AI analysis prompts or use custom prompt"""
     
+    # If custom prompt is provided, use it with file context
+    if custom_prompt:
+        return f"""{custom_prompt}
+
+FILE: {filename} STATUS: {status} 
+DIFF: {patch}"""
+    
+    # Otherwise use default language-specific prompts
     if file_ext in ['c', 'cpp', 'cc', 'cxx', 'h', 'hpp']:
         return f"""Analyze this C/C++ code diff and find ALL critical issues:
 🚨 SECURITY: Buffer overflows (gets, strcpy, strcat, sprintf, scanf), hardcoded secrets, format string vulnerabilities, integer overflows

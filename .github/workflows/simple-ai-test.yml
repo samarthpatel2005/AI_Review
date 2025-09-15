@@ -4,8 +4,14 @@
 # 1. Add these GitHub Secrets in Settings → Secrets and variables → Actions:
 #    - AWS_ACCESS_KEY_ID: Your AWS access key
 #    - AWS_SECRET_ACCESS_KEY: Your AWS secret key
+#    - CUSTOM_PROMPT: (Optional) Your custom AI analysis prompt
 # 2. Enable amazon.nova-micro-v1:0 model in AWS Bedrock console
 # 3. Ensure AWS region is set correctly below (default: us-east-1)
+#
+# CUSTOM PROMPT FEATURE:
+# - Set CUSTOM_PROMPT secret to override default language-specific prompts
+# - Leave CUSTOM_PROMPT empty/unset to use smart language detection
+# - Example: "Focus on performance and security issues only"
 #
 # CUSTOMIZATION:
 # - Change AI model: Edit line ~175 (modelId)
@@ -55,5 +61,6 @@ jobs:
         GITHUB_REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         AWS_DEFAULT_REGION: ${{ env.AWS_DEFAULT_REGION }}
+        # CUSTOM_PROMPT: ${{ secrets.CUSTOM_PROMPT }}  # Optional: Uncomment to use custom prompt
       run: |
         python3 ai_pr_reviewer.py
