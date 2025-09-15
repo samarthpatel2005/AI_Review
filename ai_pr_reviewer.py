@@ -14,6 +14,31 @@ Features:
 - Inline suggestions with auto-fix capability
 - AWS Bedrock integration with Nova model
 
+ENHANCED CODE ANALYSIS:
+✅ Critical Function Detection:
+   - Command injection risks (system, exec, eval)
+   - File operation security (path traversal)
+   - Network operation validation
+   - Memory management issues
+   - Authentication/authorization functions
+
+✅ Language-Specific Security:
+   - C/C++: Buffer overflows, unsafe functions, memory leaks
+   - Python: Code injection, subprocess risks, file operations
+   - JavaScript: XSS, code injection, DOM manipulation
+   - Java: Reflection risks, command injection
+   - PHP: Code/command injection, file inclusion
+   - Rust: Unsafe blocks, error handling
+   - Go: Command execution, unsafe operations
+
+✅ Quality & Performance:
+   - Database operation validation
+   - Cryptographic function assessment
+   - Error handling analysis
+   - Thread safety checks
+   - Hardcoded configuration detection
+   - Memory allocation validation
+
 Requirements:
 - AWS Bedrock access with amazon.nova-micro-v1:0 model
 - GitHub token with PR write permissions
@@ -376,6 +401,78 @@ def detect_security_issues(line_content, line_number):
                 'suggestion': '# TODO: Move to environment variable or secure vault'
             })
     
+    # Critical function patterns - dangerous operations
+    critical_functions = {
+        'system(': 'Command injection risk - validate input or use safer alternatives',
+        'exec(': 'Code injection risk - avoid dynamic code execution',
+        'eval(': 'Code injection risk - avoid dynamic code evaluation',
+        'subprocess.call(': 'Command injection risk - use subprocess.run() with shell=False',
+        'os.system(': 'Command injection risk - use subprocess with proper sanitization',
+        'Runtime.getRuntime().exec(': 'Command injection risk in Java - sanitize input',
+        'ProcessBuilder(': 'Command injection risk in Java - validate arguments',
+        'shell_exec(': 'Command injection risk in PHP - sanitize input',
+        'passthru(': 'Command injection risk in PHP - use safer alternatives',
+        'popen(': 'Command injection risk - validate input',
+        'execvp(': 'Command injection risk in C - validate arguments',
+        'CreateProcess(': 'Command injection risk in Windows - validate arguments'
+    }
+    
+    for func, warning in critical_functions.items():
+        if func in line_content:
+            issues.append({
+                'line': line_number,
+                'type': 'security',
+                'severity': 'critical',
+                'message': f'Critical function {func[:-1]}() detected - {warning}',
+                'suggestion': f'# CRITICAL: Review this {func[:-1]}() call for security implications'
+            })
+    
+    # File operation risks
+    file_operations = {
+        'open(': 'File operation - ensure proper path validation and access controls',
+        'fopen(': 'File operation in C - validate file paths and permissions',
+        'file_get_contents(': 'File operation in PHP - validate file paths',
+        'readFile(': 'File operation - ensure proper path validation',
+        'writeFile(': 'File operation - validate paths and sanitize content',
+        'fs.readFile(': 'Node.js file operation - validate file paths',
+        'fs.writeFile(': 'Node.js file operation - validate paths and content',
+        'File.ReadAllText(': '.NET file operation - validate file paths',
+        'File.WriteAllText(': '.NET file operation - validate paths and content'
+    }
+    
+    for func, warning in file_operations.items():
+        if func in line_content and ('/' in line_content or '\\' in line_content or '..' in line_content):
+            issues.append({
+                'line': line_number,
+                'type': 'security',
+                'severity': 'high',
+                'message': f'File operation {func[:-1]}() with path - {warning}',
+                'suggestion': '# TODO: Validate file paths to prevent directory traversal'
+            })
+    
+    # Network/HTTP operations
+    network_functions = {
+        'requests.get(': 'HTTP request - validate URLs and handle SSL properly',
+        'requests.post(': 'HTTP request - validate URLs and sanitize data',
+        'urllib.request.urlopen(': 'URL operation - validate URLs and handle exceptions',
+        'fetch(': 'Network request - validate URLs and handle errors',
+        'XMLHttpRequest(': 'AJAX request - validate URLs and sanitize data',
+        'HttpClient(': 'HTTP client - ensure proper SSL validation',
+        'curl_exec(': 'cURL operation in PHP - validate URLs and options',
+        'wget(': 'Network download - validate URLs',
+        'curl(': 'Network operation - validate URLs and options'
+    }
+    
+    for func, warning in network_functions.items():
+        if func in line_content:
+            issues.append({
+                'line': line_number,
+                'type': 'security',
+                'severity': 'medium',
+                'message': f'Network operation {func[:-1]}() - {warning}',
+                'suggestion': '# TODO: Ensure proper input validation and SSL verification'
+            })
+    
     # SQL injection patterns
     sql_injection_patterns = [
         r'SELECT.*\+.*\+',  # String concatenation in SQL
@@ -408,7 +505,11 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
             'strcpy(': 'Use strncpy() or strcpy_s() instead',
             'strcat(': 'Use strncat() or strcat_s() instead',
             'sprintf(': 'Use snprintf() instead',
-            'scanf(': 'Use scanf_s() or limit input instead'
+            'scanf(': 'Use scanf_s() or limit input instead',
+            'strncpy(': 'Ensure null termination with strncpy',
+            'memcpy(': 'Validate buffer sizes to prevent overflow',
+            'memmove(': 'Validate buffer sizes to prevent overflow',
+            'alloca(': 'Use malloc() instead - alloca() can cause stack overflow'
         }
         
         for func, suggestion in unsafe_c_funcs.items():
@@ -421,7 +522,8 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
                     'suggestion': suggestion
                 })
         
-        if 'malloc(' in line_content:
+        # Memory management functions
+        if 'malloc(' in line_content or 'calloc(' in line_content or 'realloc(' in line_content:
             issues.append({
                 'line': line_number,
                 'type': 'quality',
@@ -429,16 +531,62 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
                 'message': 'Memory allocation - ensure corresponding free() call',
                 'suggestion': ''
             })
+        
+        # Pointer operations
+        if '*' in line_content and ('=' in line_content or 'return' in line_content):
+            issues.append({
+                'line': line_number,
+                'type': 'quality',
+                'severity': 'medium',
+                'message': 'Pointer operation - ensure null pointer checks',
+                'suggestion': '// TODO: Add null pointer validation'
+            })
     
     elif file_ext in ['py', 'pyw']:
-        if 'eval(' in line_content or 'exec(' in line_content:
+        # Python critical functions
+        dangerous_python_funcs = {
+            'eval(': 'Code injection risk - avoid dynamic code evaluation',
+            'exec(': 'Code injection risk - avoid dynamic code execution',
+            'compile(': 'Dynamic compilation risk - validate input',
+            '__import__(': 'Dynamic import risk - validate module names',
+            'getattr(': 'Attribute access risk - validate attribute names',
+            'setattr(': 'Attribute modification risk - validate inputs',
+            'delattr(': 'Attribute deletion risk - validate operations',
+            'hasattr(': 'Attribute check - ensure safe usage'
+        }
+        
+        for func, warning in dangerous_python_funcs.items():
+            if func in line_content:
+                issues.append({
+                    'line': line_number,
+                    'type': 'security',
+                    'severity': 'high',
+                    'message': f'Dangerous Python function {func[:-1]}() - {warning}',
+                    'suggestion': f'# CRITICAL: Review {func[:-1]}() usage for security'
+                })
+        
+        # File operations with user input
+        if ('open(' in line_content or 'file(' in line_content) and ('+' in line_content or 'input(' in line_content):
             issues.append({
                 'line': line_number,
                 'type': 'security',
                 'severity': 'high',
-                'message': 'eval/exec usage - code injection risk',
-                'suggestion': ''
+                'message': 'File operation with potential user input - path traversal risk',
+                'suggestion': '# TODO: Validate and sanitize file paths'
             })
+        
+        # Subprocess operations
+        subprocess_funcs = ['subprocess.call(', 'subprocess.run(', 'subprocess.Popen(', 'os.system(']
+        for func in subprocess_funcs:
+            if func in line_content:
+                if 'shell=True' in line_content:
+                    issues.append({
+                        'line': line_number,
+                        'type': 'security',
+                        'severity': 'critical',
+                        'message': f'{func[:-1]}() with shell=True - command injection risk',
+                        'suggestion': 'Use shell=False and pass commands as list'
+                    })
         
         if 'print(' in line_content:
             issues.append({
@@ -450,14 +598,28 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
             })
     
     elif file_ext in ['js', 'jsx', 'ts', 'tsx']:
-        if 'eval(' in line_content:
-            issues.append({
-                'line': line_number,
-                'type': 'security',
-                'severity': 'high',
-                'message': 'eval() usage - code injection risk',
-                'suggestion': ''
-            })
+        # JavaScript/TypeScript dangerous functions
+        dangerous_js_funcs = {
+            'eval(': 'Code injection risk - avoid dynamic code evaluation',
+            'Function(': 'Dynamic function creation - code injection risk',
+            'setTimeout(': 'Check if using string instead of function',
+            'setInterval(': 'Check if using string instead of function',
+            'document.write(': 'XSS risk - use safer DOM manipulation',
+            'innerHTML': 'XSS risk - use textContent or sanitize HTML',
+            'outerHTML': 'XSS risk - use safer DOM manipulation',
+            'insertAdjacentHTML': 'XSS risk - sanitize HTML content'
+        }
+        
+        for func, warning in dangerous_js_funcs.items():
+            if func in line_content:
+                severity = 'critical' if func in ['eval(', 'Function('] else 'high'
+                issues.append({
+                    'line': line_number,
+                    'type': 'security',
+                    'severity': severity,
+                    'message': f'Dangerous JS function {func} - {warning}',
+                    'suggestion': f'// CRITICAL: Review {func} usage for security'
+                })
         
         if 'console.log(' in line_content:
             issues.append({
@@ -477,7 +639,54 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
                 'suggestion': line_content.replace('==', '===')
             })
     
+    elif file_ext in ['java']:
+        # Java dangerous functions
+        dangerous_java_funcs = {
+            'Runtime.getRuntime().exec(': 'Command injection risk - validate input',
+            'ProcessBuilder(': 'Command injection risk - validate arguments',
+            'Class.forName(': 'Dynamic class loading - validate class names',
+            'Method.invoke(': 'Reflection risk - validate method calls',
+            'URLClassLoader(': 'Dynamic class loading risk',
+            'ScriptEngine.eval(': 'Script injection risk in Java'
+        }
+        
+        for func, warning in dangerous_java_funcs.items():
+            if func in line_content:
+                issues.append({
+                    'line': line_number,
+                    'type': 'security',
+                    'severity': 'high',
+                    'message': f'Dangerous Java function {func[:-1]}() - {warning}',
+                    'suggestion': f'// TODO: Review {func[:-1]}() for security implications'
+                })
+    
+    elif file_ext in ['php']:
+        # PHP dangerous functions
+        dangerous_php_funcs = {
+            'eval(': 'Code injection risk - avoid dynamic code evaluation',
+            'exec(': 'Command injection risk - validate input',
+            'shell_exec(': 'Command injection risk - validate input',
+            'system(': 'Command injection risk - validate input',
+            'passthru(': 'Command injection risk - validate input',
+            'file_get_contents(': 'File inclusion risk with user input',
+            'include(': 'File inclusion risk - validate file paths',
+            'require(': 'File inclusion risk - validate file paths',
+            'unserialize(': 'Object injection risk - validate input',
+            'create_function(': 'Dynamic function creation - code injection risk'
+        }
+        
+        for func, warning in dangerous_php_funcs.items():
+            if func in line_content:
+                issues.append({
+                    'line': line_number,
+                    'type': 'security',
+                    'severity': 'critical' if func in ['eval(', 'unserialize('] else 'high',
+                    'message': f'Dangerous PHP function {func[:-1]}() - {warning}',
+                    'suggestion': f'// CRITICAL: Review {func[:-1]}() usage for security'
+                })
+    
     elif file_ext == 'rs':
+        # Rust potentially unsafe patterns
         if 'unwrap()' in line_content:
             issues.append({
                 'line': line_number,
@@ -485,6 +694,15 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
                 'severity': 'medium',
                 'message': 'unwrap() usage - consider proper error handling',
                 'suggestion': line_content.replace('.unwrap()', '.expect("description")')
+            })
+        
+        if 'unsafe' in line_content:
+            issues.append({
+                'line': line_number,
+                'type': 'security',
+                'severity': 'high',
+                'message': 'Unsafe Rust code block - review for memory safety',
+                'suggestion': '// TODO: Document why unsafe is necessary and ensure safety'
             })
         
         if 'println!' in line_content:
@@ -496,6 +714,26 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
                 'suggestion': ''
             })
     
+    elif file_ext in ['go']:
+        # Go dangerous patterns
+        if 'exec.Command(' in line_content:
+            issues.append({
+                'line': line_number,
+                'type': 'security',
+                'severity': 'high',
+                'message': 'Command execution - validate input to prevent injection',
+                'suggestion': '// TODO: Validate command arguments and avoid user input'
+            })
+        
+        if 'unsafe.' in line_content:
+            issues.append({
+                'line': line_number,
+                'type': 'security',
+                'severity': 'high',
+                'message': 'Unsafe Go code - review for memory safety',
+                'suggestion': '// TODO: Document why unsafe is necessary'
+            })
+    
     return issues
 
 
@@ -503,12 +741,12 @@ def detect_quality_issues(line_content, line_number):
     """Detect universal quality issues"""
     issues = []
     
-    # Comment analysis
+    # Comment analysis - expanded critical patterns
     comment_patterns = [
-        r'^//\s*(test|debug|hello|todo|fixme|hack)',  # C-style comments
-        r'^#\s*(test|debug|hello|todo|fixme|hack)',   # Python/Shell comments
-        r'^\*\s*(test|debug|hello|todo|fixme|hack)',  # Block comment lines
-        r'^<!--\s*(test|debug|hello|todo|fixme|hack)' # HTML comments
+        r'^//\s*(test|debug|hello|todo|fixme|hack|temp|temporary|remove|delete)',  # C-style comments
+        r'^#\s*(test|debug|hello|todo|fixme|hack|temp|temporary|remove|delete)',   # Python/Shell comments
+        r'^\*\s*(test|debug|hello|todo|fixme|hack|temp|temporary|remove|delete)',  # Block comment lines
+        r'^<!--\s*(test|debug|hello|todo|fixme|hack|temp|temporary|remove|delete)' # HTML comments
     ]
     
     for pattern in comment_patterns:
@@ -517,19 +755,149 @@ def detect_quality_issues(line_content, line_number):
                 'line': line_number,
                 'type': 'quality',
                 'severity': 'medium', 
-                'message': 'Remove test/debug comment before production',
+                'message': 'Remove test/debug/temporary comment before production',
                 'suggestion': ''
+            })
+    
+    # Function definition patterns - check for critical functions
+    function_patterns = {
+        'def authenticate(': 'Authentication function - ensure secure implementation',
+        'def login(': 'Login function - implement proper security measures',
+        'def password(': 'Password function - ensure secure handling',
+        'def admin(': 'Admin function - implement proper authorization',
+        'def delete(': 'Delete function - implement confirmation and backup',
+        'def remove(': 'Remove function - implement safety checks',
+        'def drop(': 'Drop function - implement safety measures',
+        'def execute(': 'Execute function - validate input to prevent injection',
+        'def run(': 'Run function - validate input and implement safety checks',
+        'def eval(': 'Eval function - avoid or implement strict validation',
+        'function authenticate(': 'Authentication function - ensure secure implementation',
+        'function login(': 'Login function - implement proper security measures',
+        'function password(': 'Password function - ensure secure handling',
+        'function admin(': 'Admin function - implement proper authorization',
+        'function delete(': 'Delete function - implement confirmation and backup',
+        'function execute(': 'Execute function - validate input to prevent injection'
+    }
+    
+    for pattern, warning in function_patterns.items():
+        if pattern in line_content.lower():
+            issues.append({
+                'line': line_number,
+                'type': 'security',
+                'severity': 'high',
+                'message': f'Critical function detected - {warning}',
+                'suggestion': f'// TODO: Review function security implementation'
+            })
+    
+    # Database operation patterns
+    db_operations = [
+        'DROP TABLE', 'DELETE FROM', 'TRUNCATE', 'ALTER TABLE', 'DROP DATABASE',
+        'UPDATE ', 'INSERT INTO', 'CREATE TABLE', 'GRANT ', 'REVOKE ',
+        '.execute(', '.query(', '.rawQuery(', 'executeQuery(', 'executeUpdate('
+    ]
+    
+    for operation in db_operations:
+        if operation in line_content:
+            issues.append({
+                'line': line_number,
+                'type': 'security',
+                'severity': 'medium',
+                'message': f'Database operation {operation} - ensure proper validation and authorization',
+                'suggestion': '// TODO: Validate input and implement proper access controls'
+            })
+    
+    # Cryptographic function usage
+    crypto_patterns = [
+        'md5(', 'sha1(', 'MD5(', 'SHA1(',  # Weak hashing
+        'encrypt(', 'decrypt(', 'hash(', 'crypto.', 'cipher.',
+        'AES.', 'DES.', 'RSA.', 'bcrypt.', 'scrypt.',
+        'random(', 'Math.random(', 'rand(', 'srand('  # Random number generation
+    ]
+    
+    for pattern in crypto_patterns:
+        if pattern in line_content:
+            if pattern.lower() in ['md5(', 'sha1(']:
+                issues.append({
+                    'line': line_number,
+                    'type': 'security',
+                    'severity': 'high',
+                    'message': f'Weak cryptographic function {pattern[:-1]}() - use stronger alternatives',
+                    'suggestion': '// TODO: Use SHA-256 or stronger hashing algorithm'
+                })
+            else:
+                issues.append({
+                    'line': line_number,
+                    'type': 'security',
+                    'severity': 'medium',
+                    'message': f'Cryptographic operation detected - ensure proper implementation',
+                    'suggestion': '// TODO: Review cryptographic implementation for security'
+                })
+    
+    # Error handling patterns
+    error_handling = ['try:', 'catch(', 'except:', 'rescue', 'defer', 'finally:']
+    if any(pattern in line_content for pattern in error_handling):
+        # Check if error is being suppressed
+        if ('pass' in line_content or 'continue' in line_content or '// ignore' in line_content.lower()):
+            issues.append({
+                'line': line_number,
+                'type': 'quality',
+                'severity': 'medium',
+                'message': 'Error suppression detected - ensure proper error handling',
+                'suggestion': '// TODO: Implement proper error logging and handling'
             })
     
     # Division by zero check
     if '/' in line_content and ('return' in line_content or '=' in line_content):
-        if 'if' not in line_content and '//' not in line_content:
+        if 'if' not in line_content and '//' not in line_content and '/*' not in line_content:
             issues.append({
                 'line': line_number,
                 'type': 'quality',
                 'severity': 'medium',
                 'message': 'Division operation without zero check',
-                'suggestion': ''
+                'suggestion': '// TODO: Add zero division check'
+            })
+    
+    # Memory allocation without bounds check
+    allocation_patterns = ['malloc(', 'calloc(', 'realloc(', 'new ', 'new[]', 'alloc(']
+    for pattern in allocation_patterns:
+        if pattern in line_content:
+            issues.append({
+                'line': line_number,
+                'type': 'quality',
+                'severity': 'medium',
+                'message': f'Memory allocation {pattern[:-1]}() - ensure bounds checking and proper cleanup',
+                'suggestion': '// TODO: Validate allocation size and ensure proper deallocation'
+            })
+    
+    # Hardcoded values that might need configuration
+    if re.search(r':\s*\d{3,5}\s*[,;}]', line_content):  # Port numbers
+        issues.append({
+            'line': line_number,
+            'type': 'quality',
+            'severity': 'low',
+            'message': 'Hardcoded port number - consider using configuration',
+            'suggestion': '// TODO: Move port number to configuration file'
+        })
+    
+    if re.search(r'(http://|https://)[^\s\'"]+', line_content):  # URLs
+        issues.append({
+            'line': line_number,
+            'type': 'quality',
+            'severity': 'low',
+            'message': 'Hardcoded URL - consider using configuration',
+            'suggestion': '// TODO: Move URL to configuration file'
+        })
+    
+    # Thread/concurrency operations
+    thread_patterns = ['Thread(', 'threading.', 'async ', 'await ', 'Promise(', 'Future(', 'goroutine']
+    for pattern in thread_patterns:
+        if pattern in line_content:
+            issues.append({
+                'line': line_number,
+                'type': 'quality',
+                'severity': 'medium',
+                'message': f'Concurrency operation {pattern} - ensure thread safety',
+                'suggestion': '// TODO: Review for race conditions and thread safety'
             })
     
     return issues
@@ -542,9 +910,12 @@ def format_review_comment(issue):
     suggestion = issue.get('suggestion', '')
     
     # Format comment based on severity
-    if severity == 'high':
+    if severity == 'critical':
+        icon = '�'
+        label = 'CRITICAL'
+    elif severity == 'high':
         icon = '🚨'
-        label = 'Critical'
+        label = 'High Risk'
     elif severity == 'medium':
         icon = '⚠️'
         label = 'Warning'
