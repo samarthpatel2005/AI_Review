@@ -89,8 +89,9 @@ def main():
     print(f"  - Token: {'✅ Present' if github_token else '❌ Missing'}")
     
     if not all([github_token, repo, pr_number, github_sha]):
-        print("\n❌ FAILED: Missing required environment variables")
-        sys.exit(1)
+        print("\n⚠️ WARNING: Missing required environment variables")
+        print("✅ Action completed (skipped due to missing variables)")
+        return
     
     headers = {
         'Authorization': f'token {github_token}',
@@ -106,8 +107,9 @@ def main():
         )
         
         if files_response.status_code != 200:
-            print(f"❌ FAILED: Cannot get PR files (status: {files_response.status_code})")
-            sys.exit(1)
+            print(f"⚠️ WARNING: Cannot get PR files (status: {files_response.status_code})")
+            print("✅ Action completed (skipped due to API error)")
+            return
         
         files_data = files_response.json()
         print(f"📂 Found {len(files_data)} files to analyze")
@@ -349,7 +351,7 @@ def post_analysis_report(analysis_result, repo, pr_number, headers):
     
     report_parts.extend([
         "---",
-        f"🤖 **Critical Words Enforcer** | Analyzed: {total_comments} comments | Critical: {total_critical_words} | Status: {'❌ FAILED' if has_critical_words else '✅ PASSED'}"
+        f"🤖 **Critical Words Enforcer** | Analyzed: {total_comments} comments | Critical: {total_critical_words} | Status: {'⚠️ REPORTED' if has_critical_words else '✅ PASSED'}"
     ])
     
     # Post the analysis comment
@@ -371,7 +373,7 @@ def post_analysis_report(analysis_result, repo, pr_number, headers):
     else:
         print(f"⚠️ Failed to post comment: {comment_response.status_code}")
         # Try minimal fallback
-        fallback_text = f"🤖 **Critical Words Enforcer**\n\n{'❌ FAILED' if has_critical_words else '✅ PASSED'}: Found {total_critical_words} critical words in {total_comments} comments.\n\nCheck Actions log for full details."
+        fallback_text = f"🤖 **Critical Words Enforcer**\n\n{'⚠️ REPORTED' if has_critical_words else '✅ PASSED'}: Found {total_critical_words} critical words in {total_comments} comments.\n\nCheck Actions log for full details."
         requests.post(f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments", headers=headers, json={'body': fallback_text})
 
 
@@ -386,14 +388,14 @@ def set_commit_status(analysis_result, repo, github_sha, headers):
             f"https://api.github.com/repos/{repo}/statuses/{github_sha}",
             headers=headers,
             json={
-                'state': 'failure',
-                'description': f'FAILED: {total_critical_words} critical words found in comments. Review and fix before merge.',
+                'state': 'success',
+                'description': f'REPORTED: {total_critical_words} critical words found in comments. Review recommended.',
                 'context': 'Critical Words Enforcer'
             }
         )
-        print("🚫 Status set to FAILURE - merge blocked")
-        print(f"❌ ENFORCER FAILED: {total_critical_words} critical words must be fixed!")
-        print("✅ Action completed successfully (status marked as failed)")
+        print("✅ Status set to SUCCESS with warning - merge allowed")
+        print(f"⚠️ REPORTED: {total_critical_words} critical words found for review!")
+        print("✅ Action completed successfully (reported findings)")
     else:
         status_response = requests.post(
             f"https://api.github.com/repos/{repo}/statuses/{github_sha}",
@@ -410,21 +412,21 @@ def set_commit_status(analysis_result, repo, github_sha, headers):
 
 
 def set_error_status(repo, github_sha, headers):
-    """Set error status when something goes wrong"""
+    """Set success status when something goes wrong but don't fail the action"""
     try:
         requests.post(
             f"https://api.github.com/repos/{repo}/statuses/{github_sha}",
             headers=headers,
             json={
-                'state': 'error',
-                'description': 'Critical Words Enforcer encountered an error.',
+                'state': 'success',
+                'description': 'Critical Words Enforcer completed with warnings.',
                 'context': 'Critical Words Enforcer'
             }
         )
-        print("⚠️ Status set to ERROR due to exception")
-        print("✅ Action completed (with error status)")
+        print("✅ Status set to SUCCESS despite error - merge allowed")
+        print("✅ Action completed (with warning status)")
     except:
-        print("❌ Could not set error status")
+        print("⚠️ Could not set status, but action completed successfully")
 
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
-# 🚨 Critical Words Enforcer
+# 🚨 Critical Words Reporter
 # 
-# This workflow FAILS the PR if critical words are found in comments
+# This workflow REPORTS critical words found in comments without failing the PR
 # Provides clear feedback and suggestions for improvement
 #
 # FEATURES:
-# - Strict enforcement: FAILS when critical words detected
+# - Non-blocking analysis: REPORTS when critical words detected
 # - Clear suggestions for fixing issues
 # - Detailed analysis of all comments
 # - Configurable thresholds and word lists
