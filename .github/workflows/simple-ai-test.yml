@@ -1,23 +1,33 @@
 # 🤖 Enhanced AI PR Review (GitHub Copilot Style)
 # 
+# AUTOMATIC MODE:
+# - Runs automatically on PR creation/updates
+# - Uses default language-specific prompts
+# - Can be customized via CUSTOM_PROMPT secret
+#
+# INTERACTIVE MODE:
+# - Go to Actions tab → "Enhanced AI PR Review" → "Run workflow"
+# - Enter PR number and choose prompt option:
+#   Option 1: Use default prompts (recommended)
+#   Option 2: Enter custom prompt for focused analysis
+#
 # SETUP REQUIRED:
 # 1. Add these GitHub Secrets in Settings → Secrets and variables → Actions:
 #    - AWS_ACCESS_KEY_ID: Your AWS access key
 #    - AWS_SECRET_ACCESS_KEY: Your AWS secret key
-#    - CUSTOM_PROMPT: (Optional) Your custom AI analysis prompt
+#    - CUSTOM_PROMPT: (Optional) Default custom prompt for automatic runs
 # 2. Enable amazon.nova-micro-v1:0 model in AWS Bedrock console
 # 3. Ensure AWS region is set correctly below (default: us-east-1)
 #
-# CUSTOM PROMPT FEATURE:
-# - Set CUSTOM_PROMPT secret to override default language-specific prompts
-# - Leave CUSTOM_PROMPT empty/unset to use smart language detection
-# - Example: "Focus on performance and security issues only"
+# INTERACTIVE EXAMPLES:
+# - Security Focus: "Focus on security vulnerabilities and authentication flaws only"
+# - Performance: "Analyze for performance issues: memory leaks, inefficient algorithms"
+# - Code Quality: "Review for maintainability: design patterns, error handling"
 #
 # CUSTOMIZATION:
 # - Change AI model: Edit line ~175 (modelId)
 # - Add languages: Edit file extensions in detection logic
 # - Adjust patterns: Modify detection rules starting line ~200
-# - Change prompts: Edit AI prompts around line ~160
 
 name: Enhanced AI PR Review (Copilot Style)
 
@@ -25,6 +35,22 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [ main, master, develop ]  # Customize target branches
+  workflow_dispatch:  # Manual trigger with custom prompt option
+    inputs:
+      pr_number:
+        description: '📋 PR Number (required for manual runs)'
+        required: true
+        type: number
+      custom_prompt:
+        description: '🎯 Custom AI Analysis Prompt (leave empty for default language-specific prompts)'
+        required: false
+        default: ''
+        type: string
+      use_default:
+        description: '🔧 Use Default Prompts (ignore custom prompt above)'
+        required: false
+        default: false
+        type: boolean
 
 env:
   AWS_DEFAULT_REGION: us-east-1  # Change to your AWS region if needed
@@ -53,14 +79,37 @@ jobs:
         python -m pip install --upgrade pip
         pip install boto3 requests
 
+    - name: Display Prompt Configuration
+      run: |
+        echo "🎯 AI PR Review Configuration:"
+        if [ "${{ github.event.inputs.use_default }}" = "true" ]; then
+          echo "   Mode: DEFAULT prompts (language-specific)"
+          echo "   Custom prompt ignored per user selection"
+        elif [ -n "${{ github.event.inputs.custom_prompt }}" ]; then
+          echo "   Mode: CUSTOM prompt (user input)"
+          echo "   Prompt: ${{ github.event.inputs.custom_prompt }}"
+        elif [ -n "${{ secrets.CUSTOM_PROMPT }}" ]; then
+          echo "   Mode: CUSTOM prompt (from secrets)"
+          echo "   Using pre-configured CUSTOM_PROMPT secret"
+        else
+          echo "   Mode: DEFAULT prompts (language-specific)"
+          echo "   No custom prompt specified"
+        fi
+        echo "   PR Number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}"
+
     - name: Run Enhanced PR Review
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         GITHUB_REPOSITORY: ${{ github.repository }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
         AWS_DEFAULT_REGION: ${{ env.AWS_DEFAULT_REGION }}
-        # CUSTOM_PROMPT: ${{ secrets.CUSTOM_PROMPT }}  # Optional: Uncomment to use custom prompt
+        # Dynamic prompt selection based on workflow inputs
+        CUSTOM_PROMPT: ${{ 
+          github.event.inputs.use_default == 'true' && '' || 
+          github.event.inputs.custom_prompt || 
+          secrets.CUSTOM_PROMPT || '' 
+        }}
       run: |
         python3 ai_pr_reviewer.py
