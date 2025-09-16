@@ -65,8 +65,14 @@ from datetime import datetime
 def load_prompt():
     """Load prompt from files - custom.txt if not empty, otherwise default.txt"""
     try:
+        # Get the root directory of the project (where .git folder is located)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)  # Go up from scripts/ to project root
+        
         # Try to read custom prompt first
-        custom_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'prompt', 'custom.txt')
+        custom_path = os.path.join(project_root, 'prompt', 'custom.txt')
+        print(f"🔍 Looking for custom prompt at: {custom_path}")
+        
         with open(custom_path, 'r', encoding='utf-8') as f:
             custom_prompt = f.read().strip()
         
@@ -75,7 +81,9 @@ def load_prompt():
             return custom_prompt
         
         # If custom is empty, use default
-        default_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'prompt', 'default.txt')
+        default_path = os.path.join(project_root, 'prompt', 'default.txt')
+        print(f"🔍 Looking for default prompt at: {default_path}")
+        
         with open(default_path, 'r', encoding='utf-8') as f:
             default_prompt = f.read().strip()
         
@@ -85,10 +93,14 @@ def load_prompt():
     except Exception as e:
         print(f"⚠️ Error reading prompt files: {e}")
         print("🔧 Using fallback default prompt")
-        return """Analyze this code diff and find critical issues:
-🚨 SECURITY: Hardcoded secrets, injection vulnerabilities, insecure functions
-⚠️ QUALITY: Memory leaks, error handling, performance issues
-💡 STYLE: Debug statements, code smells, formatting issues"""
+        return """CRITICAL: You MUST provide detailed feedback in EXACTLY this format for EACH issue found:
+
+🚨 **[Risk Level] Risk: [Issue Title]**
+**Detailed Explanation:** [2-3 sentences explaining WHY this is problematic]
+**Impact Assessment:** [What could go wrong if not fixed - 1 sentence]
+**Specific Fix Suggestion:** [Concrete steps to resolve the issue - 1-2 sentences]
+
+FORMAT REQUIREMENTS: Each issue MUST be exactly 4 lines following the format above. Do NOT use single-line responses like "� High Risk: Potential hardcoded secret detected". Always provide the full 4-line detailed analysis."""
 
 
 def main():
