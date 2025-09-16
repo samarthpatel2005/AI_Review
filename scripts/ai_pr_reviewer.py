@@ -276,8 +276,29 @@ def main():
                     print(ai_text)
                     print("="*60)
                     
-                    # Parse diff and detect issues
-                    issues_found = analyze_code_diff(patch, file_ext, filename)
+                    # Determine if we should use AI response or pattern matching
+                    # Check if we're using custom prompt (which should get AI response)
+                    # or default prompt (which should use pattern matching)
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    project_root = os.path.dirname(script_dir)  # Go up from scripts/ to project root
+                    custom_path = os.path.join(project_root, 'prompt', 'custom.txt')
+                    use_ai_response = False
+                    
+                    if os.path.exists(custom_path):
+                        with open(custom_path, 'r', encoding='utf-8') as f:
+                            custom_content = f.read().strip()
+                        if custom_content and len(custom_content) > 10:
+                            use_ai_response = True
+                            print("🎯 Using AI response from custom prompt")
+                    
+                    if use_ai_response and ai_text.strip():
+                        # Parse AI response for issues (when using custom prompt)
+                        issues_found = parse_ai_response_for_issues(ai_text, filename)
+                        print(f"🤖 Found {len(issues_found)} AI-detected issues in {filename}")
+                    else:
+                        # Use pattern matching approach (when using default prompt or AI response is empty)
+                        print("🔍 Using pattern matching analysis")
+                        issues_found = analyze_code_diff(patch, file_ext, filename)
                     
                     print(f"🔍 Found {len(issues_found)} issues in {filename}")
                     
@@ -325,6 +346,124 @@ def main():
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+
+def parse_ai_response_for_issues(ai_text, filename):
+    """Parse AI response text to extract issues when using custom prompts"""
+    issues = []
+    
+    # Handle "no issues" response
+    if "no issues detected" in ai_text.lower() or "code looks good" in ai_text.lower():
+        return issues
+    
+    # Split the AI response into sections by risk level indicators
+    lines = ai_text.split('\n')
+    current_issue = {}
+    line_counter = 1
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Look for risk level indicators (support both formats)
+        risk_indicators = ['🔴', '🚨', '⚠️', '💡', '⚡', 'CRITICAL', 'High Risk', 'Warning', 'Suggestion', 'Quick Fix']
+        if any(indicator in line for indicator in risk_indicators):
+            # Save previous issue if exists
+            if current_issue and current_issue.get('message'):
+                issues.append(current_issue)
+                line_counter += 1
+            
+            # Start new issue
+            severity = 'medium'  # default
+            if '🔴' in line or 'CRITICAL' in line.upper():
+                severity = 'critical'
+            elif '🚨' in line or 'HIGH RISK' in line.upper():
+                severity = 'high'
+            elif '⚠️' in line or 'WARNING' in line.upper():
+                severity = 'medium'
+            elif '💡' in line or 'SUGGESTION' in line.upper():
+                severity = 'low'
+            elif '⚡' in line or 'QUICK FIX' in line.upper():
+                severity = 'medium'
+            
+            # Extract message (remove emoji and formatting)
+            message = line
+            for indicator in risk_indicators:
+                message = message.replace(indicator, '').strip()
+            message = message.replace('**', '').replace('*', '').replace(':', '').strip()
+            
+            current_issue = {
+                'line': line_counter,
+                'type': 'ai_detected',
+                'severity': severity,
+                'message': message,
+                'detailed_explanation': '',
+                'impact_assessment': '',
+                'fix_suggestion': '',
+                'suggestion': ''
+            }
+        
+        # Look for detailed explanation patterns
+        elif ('**Detailed Explanation:**' in line or 
+              '**Step-by-Step**' in line or 
+              '**Fix Time**' in line):
+            if current_issue:
+                explanation = line.split(':**')[-1].strip() if ':**' in line else line.strip()
+                if current_issue.get('detailed_explanation'):
+                    current_issue['detailed_explanation'] += ' ' + explanation
+                else:
+                    current_issue['detailed_explanation'] = explanation
+        
+        # Look for impact assessment patterns
+        elif ('**Impact Assessment:**' in line or 
+              '**Verification**' in line):
+            if current_issue:
+                impact = line.split(':**')[-1].strip() if ':**' in line else line.strip()
+                current_issue['impact_assessment'] = impact
+        
+        # Look for fix suggestion patterns
+        elif ('**Specific Fix Suggestion:**' in line or 
+              '**Fix Suggestion:**' in line or
+              line.startswith('1.') or line.startswith('2.') or line.startswith('3.')):
+            if current_issue:
+                fix_text = line
+                if ':**' in line:
+                    fix_text = line.split(':**')[-1].strip()
+                elif line.startswith(('1.', '2.', '3.')):
+                    fix_text = line[2:].strip()
+                
+                if current_issue.get('fix_suggestion'):
+                    current_issue['fix_suggestion'] += ' ' + fix_text
+                else:
+                    current_issue['fix_suggestion'] = fix_text
+        
+        # Capture additional context for current issue
+        elif current_issue and line and not line.startswith('🎯') and not line.startswith('✅'):
+            # Add to detailed explanation if it's descriptive content
+            if len(line) > 10 and not current_issue.get('detailed_explanation'):
+                current_issue['detailed_explanation'] = line
+    
+    # Add the last issue if exists
+    if current_issue and current_issue.get('message'):
+        issues.append(current_issue)
+    
+    # If no structured issues found, try to extract any feedback as a general issue
+    if not issues and ai_text.strip():
+        # Check if it's just "no issues" feedback
+        if not any(phrase in ai_text.lower() for phrase in ['no issues', 'looks good', 'code analysis complete']):
+            issues.append({
+                'line': 1,
+                'type': 'ai_detected',
+                'severity': 'medium',
+                'message': 'AI feedback provided',
+                'detailed_explanation': ai_text[:300] + '...' if len(ai_text) > 300 else ai_text,
+                'impact_assessment': 'Review the AI feedback for potential improvements.',
+                'fix_suggestion': 'Consider implementing the suggestions provided by the AI analysis.',
+                'suggestion': ''
+            })
+    
+    return issues
 
 
 def generate_language_prompt(file_ext, filename, status, patch, prompt_template):
