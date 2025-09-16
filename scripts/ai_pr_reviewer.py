@@ -69,15 +69,26 @@ def load_prompt():
         script_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(script_dir)  # Go up from scripts/ to project root
         
+        print(f"🔍 Script directory: {script_dir}")
+        print(f"🔍 Project root: {project_root}")
+        
         # Try to read custom prompt first
         custom_path = os.path.join(project_root, 'prompt', 'custom.txt')
         print(f"🔍 Looking for custom prompt at: {custom_path}")
+        print(f"🔍 Custom file exists: {os.path.exists(custom_path)}")
         
         with open(custom_path, 'r', encoding='utf-8') as f:
             custom_prompt = f.read().strip()
         
+        print(f"🔍 Custom prompt length: {len(custom_prompt)} characters")
+        print(f"🔍 Custom prompt first 100 chars: {custom_prompt[:100]}...")
+        
         if custom_prompt:
             print("🎯 Using CUSTOM PROMPT from prompt/custom.txt")
+            print(f"🔍 FULL CUSTOM PROMPT:")
+            print("="*50)
+            print(custom_prompt)
+            print("="*50)
             return custom_prompt
         
         # If custom is empty, use default
@@ -88,6 +99,10 @@ def load_prompt():
             default_prompt = f.read().strip()
         
         print("🔧 Using DEFAULT PROMPT from prompt/default.txt")
+        print(f"🔍 FULL DEFAULT PROMPT:")
+        print("="*50)
+        print(default_prompt)
+        print("="*50)
         return default_prompt
         
     except Exception as e:
@@ -234,6 +249,11 @@ def main():
                 # Generate language-specific AI prompt using loaded prompt template
                 prompt = generate_language_prompt(file_ext, filename, status, patch, prompt_template)
                 
+                print(f"🔍 FULL PROMPT BEING SENT TO AI:")
+                print("="*60)
+                print(prompt)
+                print("="*60)
+                
                 try:
                     # Call AWS Bedrock API
                     body = json.dumps({
@@ -249,7 +269,10 @@ def main():
                     
                     result = json.loads(ai_response['body'].read())
                     ai_text = result['output']['message']['content'][0]['text']
-                    print(f"🤖 AI analysis complete: {ai_text[:100]}...")
+                    print(f"🤖 AI analysis complete:")
+                    print("="*60)
+                    print(ai_text)
+                    print("="*60)
                     
                     # Parse diff and detect issues
                     issues_found = analyze_code_diff(patch, file_ext, filename)
