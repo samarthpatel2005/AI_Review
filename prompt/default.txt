@@ -1,9 +1,9 @@
-Analyze this code diff and provide detailed feedback. For EACH issue found, provide:
+CRITICAL: You MUST provide detailed feedback in EXACTLY this format for EACH issue found:
 
-1. 🚨 **Risk Level & Issue Title** (High/Medium/Low Risk: Brief description)
-2. **Detailed Explanation** (2-3 lines explaining WHY this is problematic)
-3. **Impact Assessment** (What could go wrong if not fixed)
-4. **Specific Fix Suggestion** (Concrete steps to resolve the issue)
+🚨 **[Risk Level] Risk: [Issue Title]**
+**Detailed Explanation:** [2-3 sentences explaining WHY this is problematic]
+**Impact Assessment:** [What could go wrong if not fixed - 1 sentence]
+**Specific Fix Suggestion:** [Concrete steps to resolve the issue - 1-2 sentences]
 
 🚨 SECURITY ANALYSIS:
 - Hardcoded secrets (passwords, API keys, tokens, connection strings)
@@ -25,4 +25,4 @@ Analyze this code diff and provide detailed feedback. For EACH issue found, prov
 - Formatting inconsistencies and naming violations
 - Missing documentation and poor code organization
 
-FORMAT: Each issue should be 3-4 lines total with clear actionable suggestions.
+FORMAT REQUIREMENTS: Each issue MUST be exactly 4 lines following the format above. Do NOT use single-line responses like "🚨 High Risk: Potential hardcoded secret detected". Always provide the full 4-line detailed analysis.
