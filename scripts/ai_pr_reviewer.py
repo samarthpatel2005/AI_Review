@@ -77,33 +77,35 @@ def load_prompt():
         print(f"🔍 Looking for custom prompt at: {custom_path}")
         print(f"🔍 Custom file exists: {os.path.exists(custom_path)}")
         
-        with open(custom_path, 'r', encoding='utf-8') as f:
-            custom_prompt = f.read().strip()
+        if os.path.exists(custom_path):
+            try:
+                with open(custom_path, 'r', encoding='utf-8') as f:
+                    custom_prompt = f.read().strip()
+                
+                print(f"🔍 Custom prompt length: {len(custom_prompt)} characters")
+                
+                if custom_prompt and len(custom_prompt) > 10:  # Check if meaningful content exists
+                    print("🎯 Using CUSTOM PROMPT from prompt/custom.txt")
+                    print(f"🔍 Custom prompt preview: {custom_prompt[:100]}...")
+                    return custom_prompt
+                else:
+                    print("⚠️ Custom prompt file is empty or too short, falling back to default")
+            except Exception as e:
+                print(f"⚠️ Error reading custom prompt file: {e}")
         
-        print(f"🔍 Custom prompt length: {len(custom_prompt)} characters")
-        print(f"🔍 Custom prompt first 100 chars: {custom_prompt[:100]}...")
-        
-        if custom_prompt:
-            print("🎯 Using CUSTOM PROMPT from prompt/custom.txt")
-            print(f"🔍 FULL CUSTOM PROMPT:")
-            print("="*50)
-            print(custom_prompt)
-            print("="*50)
-            return custom_prompt
-        
-        # If custom is empty, use default
+        # If custom is not available or empty, use default
         default_path = os.path.join(project_root, 'prompt', 'default.txt')
         print(f"🔍 Looking for default prompt at: {default_path}")
         
-        with open(default_path, 'r', encoding='utf-8') as f:
-            default_prompt = f.read().strip()
-        
-        print("🔧 Using DEFAULT PROMPT from prompt/default.txt")
-        print(f"🔍 FULL DEFAULT PROMPT:")
-        print("="*50)
-        print(default_prompt)
-        print("="*50)
-        return default_prompt
+        if os.path.exists(default_path):
+            with open(default_path, 'r', encoding='utf-8') as f:
+                default_prompt = f.read().strip()
+            
+            print("🔧 Using DEFAULT PROMPT from prompt/default.txt")
+            print(f"🔍 Default prompt preview: {default_prompt[:100]}...")
+            return default_prompt
+        else:
+            raise FileNotFoundError("Default prompt file not found")
         
     except Exception as e:
         print(f"⚠️ Error reading prompt files: {e}")
@@ -381,11 +383,15 @@ def detect_security_issues(line_content, line_number):
     
     if any(word in line_content.lower() for word in security_keywords):
         if '=' in line_content or ':' in line_content:
+            detected_word = next(word for word in security_keywords if word in line_content.lower())
             issues.append({
                 'line': line_number,
                 'type': 'security', 
                 'severity': 'high',
                 'message': 'Potential hardcoded secret detected',
+                'detailed_explanation': f'This line appears to contain a hardcoded {detected_word} which is a serious security vulnerability. Hardcoded credentials can be easily discovered by anyone with access to the source code, including attackers who compromise your repository.',
+                'impact_assessment': 'Exposed credentials could lead to unauthorized access to systems, data breaches, or complete system compromise.',
+                'fix_suggestion': f'Move the {detected_word} to environment variables, secure configuration files, or a secrets management system like HashiCorp Vault, AWS Secrets Manager, or Azure Key Vault.',
                 'suggestion': '# TODO: Move to environment variable or secure vault'
             })
     
@@ -411,7 +417,10 @@ def detect_security_issues(line_content, line_number):
                 'line': line_number,
                 'type': 'security',
                 'severity': 'critical',
-                'message': f'Critical function {func[:-1]}() detected - {warning}',
+                'message': f'Critical function {func[:-1]}() detected',
+                'detailed_explanation': f'The {func[:-1]}() function is extremely dangerous as it can execute arbitrary system commands or code. This function creates a direct pathway for command injection attacks where malicious input could execute unauthorized commands on the server.',
+                'impact_assessment': 'Attackers could gain complete control over your system, steal sensitive data, install malware, or completely compromise your infrastructure.',
+                'fix_suggestion': f'Replace {func[:-1]}() with safer alternatives like parameterized queries, input validation, or dedicated libraries that handle user input securely.',
                 'suggestion': f'# CRITICAL: Review this {func[:-1]}() call for security implications'
             })
     
@@ -434,7 +443,10 @@ def detect_security_issues(line_content, line_number):
                 'line': line_number,
                 'type': 'security',
                 'severity': 'high',
-                'message': f'File operation {func[:-1]}() with path - {warning}',
+                'message': f'File operation {func[:-1]}() with dynamic path detected',
+                'detailed_explanation': f'This {func[:-1]}() operation includes file paths that could be manipulated by user input. This pattern is vulnerable to directory traversal attacks where attackers can access files outside the intended directory using sequences like "../" to navigate the file system.',
+                'impact_assessment': 'Attackers could read sensitive configuration files, access user data, or potentially overwrite critical system files.',
+                'fix_suggestion': 'Validate and sanitize all file paths, use allowlists for permitted directories, and consider using path normalization functions to prevent directory traversal.',
                 'suggestion': '# TODO: Validate file paths to prevent directory traversal'
             })
     
@@ -457,7 +469,10 @@ def detect_security_issues(line_content, line_number):
                 'line': line_number,
                 'type': 'security',
                 'severity': 'medium',
-                'message': f'Network operation {func[:-1]}() - {warning}',
+                'message': f'Network operation {func[:-1]}() detected',
+                'detailed_explanation': f'This {func[:-1]}() function makes network requests which can be vulnerable to various attacks including man-in-the-middle attacks, SSL/TLS bypass, and server-side request forgery (SSRF) if URLs are not properly validated.',
+                'impact_assessment': 'Attackers could intercept sensitive data, redirect requests to malicious servers, or use your application to attack internal systems.',
+                'fix_suggestion': 'Ensure proper SSL certificate validation, validate all URLs against an allowlist, implement timeout controls, and use secure HTTP headers.',
                 'suggestion': '# TODO: Ensure proper input validation and SSL verification'
             })
     
@@ -475,7 +490,10 @@ def detect_security_issues(line_content, line_number):
                 'line': line_number,
                 'type': 'security',
                 'severity': 'high',
-                'message': 'Potential SQL injection - use parameterized queries',
+                'message': 'Potential SQL injection vulnerability',
+                'detailed_explanation': 'This code appears to construct SQL queries using string concatenation which is extremely vulnerable to SQL injection attacks. Attackers can manipulate input to modify the SQL query structure and gain unauthorized access to database.',
+                'impact_assessment': 'SQL injection could allow attackers to read, modify, or delete any data in your database, bypass authentication, or even execute administrative operations.',
+                'fix_suggestion': 'Use parameterized queries or prepared statements instead of string concatenation. Most database libraries provide safe methods for handling user input in SQL queries.',
                 'suggestion': ''
             })
     
@@ -506,8 +524,11 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
                     'line': line_number,
                     'type': 'security',
                     'severity': 'high',
-                    'message': f'Unsafe C function {func[:-1]}() - buffer overflow risk',
-                    'suggestion': suggestion
+                    'message': f'Unsafe C function {func[:-1]}() detected',
+                    'detailed_explanation': f'The {func[:-1]}() function is unsafe because it does not perform bounds checking, making it vulnerable to buffer overflow attacks. Attackers can exploit this to overwrite memory, execute arbitrary code, or crash the application.',
+                    'impact_assessment': 'Buffer overflows can lead to code execution, data corruption, system crashes, or complete system compromise.',
+                    'fix_suggestion': suggestion,
+                    'suggestion': f'// TODO: Replace {func[:-1]}() with safer alternative'
                 })
         
         # Memory management functions
@@ -516,8 +537,11 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
                 'line': line_number,
                 'type': 'quality',
                 'severity': 'medium',
-                'message': 'Memory allocation - ensure corresponding free() call',
-                'suggestion': ''
+                'message': 'Memory allocation function detected',
+                'detailed_explanation': 'This line allocates memory dynamically but every malloc(), calloc(), or realloc() call must have a corresponding free() call to prevent memory leaks. Memory leaks can cause application crashes and performance degradation.',
+                'impact_assessment': 'Memory leaks can cause the application to consume increasing amounts of memory, leading to performance issues or system crashes.',
+                'fix_suggestion': 'Ensure every memory allocation has a corresponding free() call, consider using smart pointers in C++, or implement proper error handling for allocation failures.',
+                'suggestion': '// TODO: Ensure corresponding free() call exists'
             })
         
         # Pointer operations
@@ -526,7 +550,10 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
                 'line': line_number,
                 'type': 'quality',
                 'severity': 'medium',
-                'message': 'Pointer operation - ensure null pointer checks',
+                'message': 'Pointer operation detected',
+                'detailed_explanation': 'This line involves pointer operations which can be dangerous if null pointers are dereferenced. Dereferencing null or invalid pointers leads to segmentation faults and application crashes.',
+                'impact_assessment': 'Null pointer dereferences cause immediate application crashes and can potentially be exploited for denial of service attacks.',
+                'fix_suggestion': 'Add null pointer checks before dereferencing pointers, use defensive programming practices, and consider using safer alternatives like references in C++.',
                 'suggestion': '// TODO: Add null pointer validation'
             })
     
@@ -549,7 +576,10 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
                     'line': line_number,
                     'type': 'security',
                     'severity': 'high',
-                    'message': f'Dangerous Python function {func[:-1]}() - {warning}',
+                    'message': f'Dangerous Python function {func[:-1]}() detected',
+                    'detailed_explanation': f'The {func[:-1]}() function can execute arbitrary Python code, making it extremely vulnerable to code injection attacks. This function should never be used with untrusted input as it can execute any Python code string.',
+                    'impact_assessment': 'Attackers could execute arbitrary Python code, access sensitive data, modify system files, or completely compromise your application.',
+                    'fix_suggestion': f'Remove {func[:-1]}() entirely or replace with safer alternatives like ast.literal_eval() for safe evaluation of Python literals, or implement strict input validation and sandboxing.',
                     'suggestion': f'# CRITICAL: Review {func[:-1]}() usage for security'
                 })
         
@@ -559,7 +589,10 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
                 'line': line_number,
                 'type': 'security',
                 'severity': 'high',
-                'message': 'File operation with potential user input - path traversal risk',
+                'message': 'File operation with potential user input detected',
+                'detailed_explanation': 'This file operation appears to use user input directly in file paths, which creates a path traversal vulnerability. Attackers can use sequences like "../" to access files outside the intended directory.',
+                'impact_assessment': 'Attackers could read sensitive configuration files, access user data, or potentially write to unauthorized locations.',
+                'fix_suggestion': 'Validate and sanitize all user input before using in file paths. Use os.path.join() with proper validation and consider implementing an allowlist of permitted directories.',
                 'suggestion': '# TODO: Validate and sanitize file paths'
             })
         
@@ -572,7 +605,10 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
                         'line': line_number,
                         'type': 'security',
                         'severity': 'critical',
-                        'message': f'{func[:-1]}() with shell=True - command injection risk',
+                        'message': f'{func[:-1]}() with shell=True detected',
+                        'detailed_explanation': f'Using {func[:-1]}() with shell=True is extremely dangerous as it enables shell injection attacks. The shell interprets special characters and command separators, allowing attackers to execute additional commands.',
+                        'impact_assessment': 'Attackers could execute arbitrary system commands, gain shell access, steal sensitive data, or completely compromise the system.',
+                        'fix_suggestion': 'Use shell=False and pass commands as a list instead of a string. This prevents shell interpretation and command injection attacks.',
                         'suggestion': 'Use shell=False and pass commands as list'
                     })
         
@@ -581,7 +617,10 @@ def detect_language_specific_issues(line_content, line_number, file_ext):
                 'line': line_number,
                 'type': 'quality',
                 'severity': 'low',
-                'message': 'Consider using logging instead of print statements',
+                'message': 'Print statement detected in code',
+                'detailed_explanation': 'Print statements are typically used for debugging and should not be left in production code. They can expose sensitive information in logs and indicate incomplete development.',
+                'impact_assessment': 'Print statements could leak sensitive information to logs, create performance overhead, or indicate debugging code left in production.',
+                'fix_suggestion': 'Replace print statements with proper logging using the logging module, which provides better control over log levels and output destinations.',
                 'suggestion': line_content.replace('print(', 'logging.info(')
             })
     
@@ -739,11 +778,15 @@ def detect_quality_issues(line_content, line_number):
     
     for pattern in comment_patterns:
         if re.match(pattern, line_content.lower()):
+            comment_type = re.match(pattern, line_content.lower()).group(1)
             issues.append({
                 'line': line_number,
                 'type': 'quality',
                 'severity': 'medium', 
-                'message': 'Remove test/debug/temporary comment before production',
+                'message': f'Temporary {comment_type} comment detected',
+                'detailed_explanation': f'This appears to be a {comment_type} comment that indicates incomplete development or testing code. Such comments should be removed before production deployment as they may contain sensitive information or indicate unfinished functionality.',
+                'impact_assessment': 'Temporary comments can confuse future developers, expose development practices, or indicate incomplete features that could cause issues.',
+                'fix_suggestion': f'Remove this {comment_type} comment or replace it with proper documentation if the information is needed for maintenance.',
                 'suggestion': ''
             })
     
@@ -769,12 +812,16 @@ def detect_quality_issues(line_content, line_number):
     
     for pattern, warning in function_patterns.items():
         if pattern in line_content.lower():
+            func_name = pattern.split('(')[0].replace('def ', '').replace('function ', '')
             issues.append({
                 'line': line_number,
                 'type': 'security',
                 'severity': 'high',
-                'message': f'Critical function detected - {warning}',
-                'suggestion': f'// TODO: Review function security implementation'
+                'message': f'Critical function {func_name}() detected',
+                'detailed_explanation': f'This {func_name}() function performs security-sensitive operations that require careful implementation. Such functions are common targets for attackers and must be implemented with proper security controls.',
+                'impact_assessment': 'Improperly implemented security functions can lead to authentication bypass, privilege escalation, or unauthorized access to sensitive data.',
+                'fix_suggestion': f'Ensure this {func_name}() function implements proper input validation, error handling, logging, and follows security best practices for {func_name.replace("_", " ")} operations.',
+                'suggestion': f'// TODO: Review {func_name}() function security implementation'
             })
     
     # Database operation patterns
@@ -790,7 +837,10 @@ def detect_quality_issues(line_content, line_number):
                 'line': line_number,
                 'type': 'security',
                 'severity': 'medium',
-                'message': f'Database operation {operation} - ensure proper validation and authorization',
+                'message': f'Database operation {operation.strip()} detected',
+                'detailed_explanation': f'This line contains a database operation ({operation.strip()}) which requires careful handling to prevent SQL injection and ensure proper authorization. Database operations should always use parameterized queries and proper access controls.',
+                'impact_assessment': 'Improper database operations can lead to SQL injection attacks, unauthorized data access, data corruption, or complete database compromise.',
+                'fix_suggestion': 'Use parameterized queries or prepared statements, implement proper input validation, and ensure appropriate user permissions for database operations.',
                 'suggestion': '// TODO: Validate input and implement proper access controls'
             })
     
@@ -809,7 +859,10 @@ def detect_quality_issues(line_content, line_number):
                     'line': line_number,
                     'type': 'security',
                     'severity': 'high',
-                    'message': f'Weak cryptographic function {pattern[:-1]}() - use stronger alternatives',
+                    'message': f'Weak cryptographic function {pattern[:-1]}() detected',
+                    'detailed_explanation': f'The {pattern[:-1]}() function uses a cryptographically weak hashing algorithm that is vulnerable to collision attacks and rainbow table attacks. MD5 and SHA1 are no longer considered secure for cryptographic purposes.',
+                    'impact_assessment': 'Weak hashing algorithms can be broken by attackers, allowing them to forge digital signatures, crack password hashes, or create hash collisions.',
+                    'fix_suggestion': 'Replace with stronger hashing algorithms like SHA-256, SHA-3, or use bcrypt/scrypt for password hashing which includes built-in salting and key stretching.',
                     'suggestion': '// TODO: Use SHA-256 or stronger hashing algorithm'
                 })
             else:
@@ -899,8 +952,8 @@ def format_review_comment(issue):
     
     # Format comment based on severity
     if severity == 'critical':
-        icon = '�'
-        label = 'CRITICAL'
+        icon = '🔴'
+        label = 'CRITICAL Risk'
     elif severity == 'high':
         icon = '🚨'
         label = 'High Risk'
@@ -911,7 +964,27 @@ def format_review_comment(issue):
         icon = '💡'
         label = 'Suggestion'
     
-    comment_body = f"{icon} **{label}:** {message}"
+    # Build detailed comment using 4-line format
+    detailed_explanation = issue.get('detailed_explanation', '')
+    impact_assessment = issue.get('impact_assessment', '')
+    fix_suggestion = issue.get('fix_suggestion', '')
+    
+    comment_body = f"{icon} **{label}: {message}**\n\n"
+    
+    if detailed_explanation:
+        comment_body += f"**Detailed Explanation:** {detailed_explanation}\n\n"
+    else:
+        comment_body += f"**Detailed Explanation:** This code pattern has been identified as potentially problematic and may introduce security or quality issues.\n\n"
+    
+    if impact_assessment:
+        comment_body += f"**Impact Assessment:** {impact_assessment}\n\n"
+    else:
+        comment_body += f"**Impact Assessment:** If not addressed, this could lead to security vulnerabilities or code maintainability issues.\n\n"
+    
+    if fix_suggestion:
+        comment_body += f"**Specific Fix Suggestion:** {fix_suggestion}\n\n"
+    else:
+        comment_body += f"**Specific Fix Suggestion:** Review and refactor this code following security best practices and coding standards.\n\n"
     
     # Add suggestion if provided
     if suggestion:
