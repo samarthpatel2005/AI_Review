@@ -136,12 +136,12 @@ def main():
 
     # Validate required environment variables
     if not all([github_token, repo, pr_number, aws_key, aws_secret]):
-        print("❌ Missing required environment variables:")
-        print(f"  - GITHUB_TOKEN: {'✅' if github_token else '❌'}")
-        print(f"  - GITHUB_REPOSITORY: {'✅' if repo else '❌'}")
-        print(f"  - PR_NUMBER: {'✅' if pr_number else '❌'}")
-        print(f"  - AWS_ACCESS_KEY_ID: {'✅' if aws_key else '❌'}")
-        print(f"  - AWS_SECRET_ACCESS_KEY: {'✅' if aws_secret else '❌'}")
+        print("❌ Missing required environment variables for AI PR Review")
+        print("Please ensure all required secrets are configured in GitHub Actions:")
+        print("  - GITHUB_TOKEN (auto-provided)")
+        print("  - AWS_ACCESS_KEY_ID (add to secrets)")
+        print("  - AWS_SECRET_ACCESS_KEY (add to secrets)")
+        print("  - Repository and PR information (auto-provided)")
         sys.exit(1)
 
     # Initialize Bedrock client
