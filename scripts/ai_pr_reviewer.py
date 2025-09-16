@@ -62,65 +62,6 @@ import re
 from datetime import datetime
 
 
-def ensure_detailed_format(ai_response, filename, patch):
-    """
-    Post-process AI response to ensure it follows the 4-line detailed format.
-    If the response is too short, expand it with detailed analysis.
-    """
-    lines = ai_response.strip().split('\n')
-    non_empty_lines = [line.strip() for line in lines if line.strip()]
-    
-    # Check if response is in single-line format (common issue)
-    if len(non_empty_lines) == 1 and ('High Risk:' in ai_response or 'Warning:' in ai_response):
-        print("🔧 Detected single-line response, expanding to 4-line format...")
-        
-        # Extract risk level and issue from the single line
-        single_line = non_empty_lines[0]
-        
-        # Common patterns to expand
-        if 'hardcoded secret' in single_line.lower():
-            return """**High Risk: Hardcoded Credentials Detected in Source Code**
-**Detailed Explanation:** This code contains hardcoded credentials directly embedded in the source code, creating a serious security vulnerability. Anyone with access to the repository can view these credentials and potentially gain unauthorized system access.
-**Impact Assessment:** Exposed credentials could lead to data breaches, unauthorized system access, and compromise of user accounts or sensitive information.
-**Specific Fix:** Replace hardcoded values with environment variables (e.g., password = process.env.DB_PASSWORD) and store sensitive data in .env files that are added to .gitignore."""
-        
-        elif 'malloc' in single_line.lower() or 'memory' in single_line.lower():
-            return """**Medium Risk: Unsafe Memory Management Detected**
-**Detailed Explanation:** This code uses malloc() for memory allocation without proper bounds checking or guaranteed cleanup, which can lead to memory leaks or buffer overflow vulnerabilities. Manual memory management requires careful handling to prevent security issues.
-**Impact Assessment:** Improper memory management could result in application crashes, memory leaks, or potential buffer overflow exploits.
-**Specific Fix:** Add proper bounds checking before memory operations, ensure every malloc() has a corresponding free(), and consider using safer alternatives like calloc() with size validation."""
-        
-        elif 'injection' in single_line.lower():
-            return """**Critical Risk: Code Injection Vulnerability Detected**
-**Detailed Explanation:** This code appears to construct commands or queries using unsanitized user input, creating a potential injection vulnerability. Attackers could manipulate input to execute arbitrary code or access unauthorized data.
-**Impact Assessment:** Injection vulnerabilities could allow attackers to execute malicious commands, access sensitive data, or compromise the entire system.
-**Specific Fix:** Use parameterized queries or prepared statements, validate and sanitize all user inputs, and implement proper input encoding before processing user data."""
-        
-        else:
-            # Generic expansion for other single-line responses
-            risk_level = "Medium Risk"
-            if 'High Risk' in single_line:
-                risk_level = "High Risk"
-            elif 'Critical' in single_line:
-                risk_level = "Critical Risk"
-            
-            return f"""**{risk_level}: Code Quality Issue Detected**
-**Detailed Explanation:** The identified issue in {filename} requires attention to maintain code security and quality standards. This type of problem can lead to maintenance difficulties and potential security vulnerabilities if left unaddressed.
-**Impact Assessment:** Unresolved code quality issues can accumulate technical debt and create opportunities for bugs or security exploits.
-**Specific Fix:** Review the highlighted code section, apply best practices for the specific programming language, and ensure proper error handling and input validation are implemented."""
-    
-    # If already in good format (4+ lines), return as-is
-    elif len(non_empty_lines) >= 4:
-        return ai_response
-    
-    # If too short but not single-line, try to expand
-    else:
-        return f"""**Medium Risk: Code Review Issue Identified**
-**Detailed Explanation:** The analysis has identified a potential issue in {filename} that should be reviewed and addressed. While the specific details require further investigation, this represents a code quality or security concern.
-**Impact Assessment:** Unaddressed code issues can lead to maintenance problems, bugs, or potential security vulnerabilities over time.
-**Specific Fix:** Review the highlighted code section, consult language-specific best practices, and implement appropriate fixes based on the specific issue type identified."""
-
-
 def load_prompt():
     """Load prompt from files - custom.txt if not empty, otherwise default.txt"""
     try:
@@ -333,34 +274,18 @@ def main():
                     print(ai_text)
                     print("="*60)
                     
-                    # Post-process AI response to ensure 4-line format
-                    processed_response = ensure_detailed_format(ai_text, filename, patch)
-                    print(f"🔧 Processed response:")
-                    print("="*60)
-                    print(processed_response)
-                    print("="*60)
-                    
-                    # Use the processed AI response for review comments
-                    if processed_response and processed_response.strip():
-                        # Create a single comprehensive review comment with the AI analysis
-                        review_comments.append({
-                            'path': filename,
-                            'line': 1,  # Comment on first line of the file
-                            'body': f"🤖 **AI Code Review Analysis**\n\n{processed_response}"
-                        })
-                    
-                    # Also parse diff for additional pattern-based issues (secondary analysis)
+                    # Parse diff and detect issues
                     issues_found = analyze_code_diff(patch, file_ext, filename)
                     
-                    print(f"🔍 Found {len(issues_found)} additional pattern-based issues in {filename}")
+                    print(f"🔍 Found {len(issues_found)} issues in {filename}")
                     
-                    # Add pattern-based issues as additional comments if any
+                    # Create review comments
                     for issue in issues_found:
                         comment_body = format_review_comment(issue)
                         review_comments.append({
                             'path': filename,
                             'line': issue.get('line', 1),
-                            'body': f"🔍 **Pattern Detection**\n\n{comment_body}"
+                            'body': comment_body
                         })
                 
                 except Exception as e:
