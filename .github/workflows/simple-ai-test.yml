@@ -1,25 +1,23 @@
-# 🤖 Enhanced AI PR Review (GitHub Copilot Style)
+# 🤖 Enhanced AI PR Review with File-Based Prompts
 # 
 # SETUP REQUIRED:
 # 1. Add these GitHub Secrets in Settings → Secrets and variables → Actions:
 #    - AWS_ACCESS_KEY_ID: Your AWS access key
 #    - AWS_SECRET_ACCESS_KEY: Your AWS secret key
-#    - CUSTOM_PROMPT: (Optional) Your custom AI analysis prompt
 # 2. Enable amazon.nova-micro-v1:0 model in AWS Bedrock console
 # 3. Ensure AWS region is set correctly below (default: us-east-1)
 #
 # CUSTOM PROMPT FEATURE:
-# - Set CUSTOM_PROMPT secret to override default language-specific prompts
-# - Leave CUSTOM_PROMPT empty/unset to use smart language detection
-# - Example: "Focus on performance and security issues only"
+# - Edit prompt/custom.txt to use custom AI analysis prompt
+# - Leave prompt/custom.txt empty to use default prompt from prompt/default.txt
+# - Scripts are organized in scripts/ folder for better structure
 #
-# CUSTOMIZATION:
-# - Change AI model: Edit line ~175 (modelId)
-# - Add languages: Edit file extensions in detection logic
-# - Adjust patterns: Modify detection rules starting line ~200
-# - Change prompts: Edit AI prompts around line ~160
+# FOLDER STRUCTURE:
+# - scripts/ai_pr_reviewer.py: Main AI analysis script
+# - prompt/default.txt: Default comprehensive analysis prompt
+# - prompt/custom.txt: Optional custom prompt (overrides default if not empty)
 
-name: Enhanced AI PR Review (Copilot Style)
+name: Enhanced AI PR Review with File-Based Prompts
 
 on:
   pull_request:
@@ -61,6 +59,5 @@ jobs:
         GITHUB_REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         AWS_DEFAULT_REGION: ${{ env.AWS_DEFAULT_REGION }}
-        CUSTOM_PROMPT: ${{ secrets.CUSTOM_PROMPT }}  # Optional: Uncomment to use custom prompt
       run: |
-        python3 ai_pr_reviewer.py
+        python3 scripts/ai_pr_reviewer.py

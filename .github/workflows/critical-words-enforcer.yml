@@ -48,4 +48,4 @@ jobs:
         PR_NUMBER: ${{ github.event.pull_request.number }}
         GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
       run: |
-        python3 critical_words_enforcer.py
+        python3 scripts/critical_words_enforcer.py

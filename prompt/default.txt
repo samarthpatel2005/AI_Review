@@ -1,0 +1,23 @@
+Analyze this code diff and find ALL critical issues across all categories:
+
+🚨 SECURITY: 
+- Hardcoded secrets (passwords, API keys, tokens)
+- Injection vulnerabilities (SQL, XSS, Command injection)
+- Insecure functions and weak cryptography
+- Authentication and authorization flaws
+- File operation security and path traversal
+
+⚠️ QUALITY: 
+- Memory leaks and resource management
+- Error handling and exception management
+- Performance issues and inefficient algorithms
+- Thread safety and concurrency issues
+- Infinite loops and null/undefined access
+
+💡 STYLE: 
+- Debug statements and test comments
+- Code smells and unused variables
+- Formatting issues and best practices
+- Documentation and maintainability
+
+Provide specific suggestions for improvement with clear explanations.

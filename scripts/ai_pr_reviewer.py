@@ -62,8 +62,40 @@ import re
 from datetime import datetime
 
 
+def load_prompt():
+    """Load prompt from files - custom.txt if not empty, otherwise default.txt"""
+    try:
+        # Try to read custom prompt first
+        custom_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'prompt', 'custom.txt')
+        with open(custom_path, 'r', encoding='utf-8') as f:
+            custom_prompt = f.read().strip()
+        
+        if custom_prompt:
+            print("🎯 Using CUSTOM PROMPT from prompt/custom.txt")
+            return custom_prompt
+        
+        # If custom is empty, use default
+        default_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'prompt', 'default.txt')
+        with open(default_path, 'r', encoding='utf-8') as f:
+            default_prompt = f.read().strip()
+        
+        print("🔧 Using DEFAULT PROMPT from prompt/default.txt")
+        return default_prompt
+        
+    except Exception as e:
+        print(f"⚠️ Error reading prompt files: {e}")
+        print("🔧 Using fallback default prompt")
+        return """Analyze this code diff and find critical issues:
+🚨 SECURITY: Hardcoded secrets, injection vulnerabilities, insecure functions
+⚠️ QUALITY: Memory leaks, error handling, performance issues
+💡 STYLE: Debug statements, code smells, formatting issues"""
+
+
 def main():
     print("🤖 Enhanced AI PR Review (Copilot Style)")
+    
+    # Load prompt from files
+    prompt_template = load_prompt()
     
     # Get environment variables
     github_token = os.environ.get('GITHUB_TOKEN')
@@ -72,13 +104,6 @@ def main():
     aws_key = os.environ.get('AWS_ACCESS_KEY_ID')
     aws_secret = os.environ.get('AWS_SECRET_ACCESS_KEY')
     aws_region = os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
-    custom_prompt = os.environ.get('CUSTOM_PROMPT')  # New: Optional custom prompt
-
-    # Display prompt configuration
-    if custom_prompt:
-        print(f"🎯 Using CUSTOM PROMPT: {custom_prompt[:100]}{'...' if len(custom_prompt) > 100 else ''}")
-    else:
-        print("🔧 Using DEFAULT language-specific prompts")
 
     # Validate required environment variables
     if not all([github_token, repo, pr_number, aws_key, aws_secret]):
@@ -194,8 +219,8 @@ def main():
                 # Get file extension for language-specific analysis
                 file_ext = filename.split('.')[-1].lower() if '.' in filename else ''
                 
-                # Generate language-specific AI prompt or use custom prompt
-                prompt = generate_language_prompt(file_ext, filename, status, patch, custom_prompt)
+                # Generate language-specific AI prompt using loaded prompt template
+                prompt = generate_language_prompt(file_ext, filename, status, patch, prompt_template)
                 
                 try:
                     # Call AWS Bedrock API
@@ -265,102 +290,14 @@ def main():
         sys.exit(1)
 
 
-def generate_language_prompt(file_ext, filename, status, patch, custom_prompt=None):
-    """Generate language-specific AI analysis prompts or use custom prompt"""
+def generate_language_prompt(file_ext, filename, status, patch, prompt_template):
+    """Generate AI analysis prompt using template from prompt files"""
     
-    # If custom prompt is provided, use it with file context
-    if custom_prompt:
-        return f"""{custom_prompt}
+    # Use the provided prompt template (from default.txt or custom.txt)
+    return f"""{prompt_template}
 
 FILE: {filename} STATUS: {status} 
 DIFF: {patch}"""
-    
-    # Otherwise use default language-specific prompts
-    if file_ext in ['c', 'cpp', 'cc', 'cxx', 'h', 'hpp']:
-        return f"""Analyze this C/C++ code diff and find ALL critical issues:
-🚨 SECURITY: Buffer overflows (gets, strcpy, strcat, sprintf, scanf), hardcoded secrets, format string vulnerabilities, integer overflows
-⚠️ MEMORY: Memory leaks (malloc/new without free/delete), double free, use after free, uninitialized variables, null pointer dereference
-💡 QUALITY: Division by zero, infinite loops, dead code, test comments
-FILE: {filename} STATUS: {status} DIFF: {patch}"""
-    
-    elif file_ext in ['py', 'pyw']:
-        return f"""Analyze this Python code diff and find ALL critical issues:
-🚨 SECURITY: Hardcoded secrets, SQL injection, command injection, eval/exec usage, pickle vulnerabilities, path traversal
-⚠️ QUALITY: Exception handling, resource leaks, performance issues, unused imports, mutable defaults, global variables
-💡 STYLE: PEP8 violations, missing type hints, print statements, test comments
-FILE: {filename} STATUS: {status} DIFF: {patch}"""
-    
-    elif file_ext in ['js', 'jsx', 'ts', 'tsx']:
-        return f"""Analyze this JavaScript/TypeScript code diff and find ALL critical issues:
-🚨 SECURITY: XSS vulnerabilities, prototype pollution, eval usage, hardcoded secrets, insecure randomness, CSRF vulnerabilities
-⚠️ QUALITY: Memory leaks, callback hell, promise rejections, var usage, == vs ===, missing error handling
-💡 STYLE: Console.log statements, unused variables, test comments, missing semicolons, arrow function usage
-FILE: {filename} STATUS: {status} DIFF: {patch}"""
-    
-    elif file_ext in ['java', 'kt', 'scala']:
-        return f"""Analyze this Java/Kotlin/Scala code diff and find ALL critical issues:
-🚨 SECURITY: Hardcoded secrets, SQL injection, deserialization vulnerabilities, path traversal, XML external entity (XXE)
-⚠️ QUALITY: Resource leaks (streams, connections), null pointer exceptions, infinite loops, thread safety issues, memory leaks
-💡 STYLE: System.out.println usage, unused imports, test comments, missing generics, raw types
-FILE: {filename} STATUS: {status} DIFF: {patch}"""
-    
-    elif file_ext == 'go':
-        return f"""Analyze this Go code diff and find ALL critical issues:
-🚨 SECURITY: Hardcoded secrets, SQL injection, command injection, race conditions, unsafe package usage
-⚠️ QUALITY: Goroutine leaks, unchecked errors, resource leaks, panic usage, defer in loops
-💡 STYLE: fmt.Print statements, unused variables, test comments, gofmt violations, missing error handling
-FILE: {filename} STATUS: {status} DIFF: {patch}"""
-    
-    elif file_ext == 'rs':
-        return f"""Analyze this Rust code diff and find ALL critical issues:
-🚨 SECURITY: Hardcoded secrets, unsafe blocks, integer overflows, buffer overflows in unsafe code
-⚠️ QUALITY: Unwrap usage, panic calls, unused variables, clone overuse, blocking in async
-💡 STYLE: println! statements, test comments, missing documentation, inefficient string handling
-FILE: {filename} STATUS: {status} DIFF: {patch}"""
-    
-    elif file_ext == 'cs':
-        return f"""Analyze this C# code diff and find ALL critical issues:
-🚨 SECURITY: Hardcoded secrets, SQL injection, XSS, deserialization, path traversal, weak cryptography
-⚠️ QUALITY: Resource disposal (using statements), null reference exceptions, memory leaks, thread safety
-💡 STYLE: Console.WriteLine, unused usings, test comments, missing async/await, boxing
-FILE: {filename} STATUS: {status} DIFF: {patch}"""
-    
-    elif file_ext == 'php':
-        return f"""Analyze this PHP code diff and find ALL critical issues:
-🚨 SECURITY: SQL injection, XSS, file inclusion, hardcoded secrets, command injection, session fixation
-⚠️ QUALITY: Error handling, resource leaks, performance issues, globals usage, magic numbers
-💡 STYLE: var_dump/print_r, test comments, deprecated functions, PSR violations, missing type declarations
-FILE: {filename} STATUS: {status} DIFF: {patch}"""
-    
-    elif file_ext == 'rb':
-        return f"""Analyze this Ruby code diff and find ALL critical issues:
-🚨 SECURITY: Hardcoded secrets, SQL injection, command injection, eval usage, YAML.load vulnerabilities
-⚠️ QUALITY: Exception handling, performance issues, memory leaks, global variables, thread safety
-💡 STYLE: puts/p statements, test comments, unused variables, style guide violations
-FILE: {filename} STATUS: {status} DIFF: {patch}"""
-    
-    elif file_ext == 'swift':
-        return f"""Analyze this Swift code diff and find ALL critical issues:
-🚨 SECURITY: Hardcoded secrets, unsafe pointers, force unwrapping, weak cryptography, keychain issues
-⚠️ QUALITY: Memory leaks, retain cycles, force unwrapping, thread safety, performance issues
-💡 STYLE: print statements, test comments, force casts, naming conventions, unused variables
-FILE: {filename} STATUS: {status} DIFF: {patch}"""
-    
-    elif file_ext in ['sql', 'mysql', 'pgsql']:
-        return f"""Analyze this SQL code diff and find ALL critical issues:
-🚨 SECURITY: SQL injection, privilege escalation, hardcoded credentials, data exposure, weak permissions
-⚠️ QUALITY: Missing indexes, inefficient queries, resource locks, transaction handling, performance issues
-💡 STYLE: Test comments, deprecated functions, formatting issues
-FILE: {filename} STATUS: {status} DIFF: {patch}"""
-    
-    else:
-        # Universal analysis for any other file type
-        return f"""Analyze this code diff and find ALL critical issues across all categories:
-🚨 SECURITY: Hardcoded secrets (passwords, API keys, tokens), injection vulnerabilities, insecure functions, weak cryptography
-⚠️ QUALITY: Memory leaks, resource management, error handling, performance issues, infinite loops, null/undefined access
-💡 STYLE: Debug statements, test comments, code smells, unused variables, formatting issues
-FILE: {filename} STATUS: {status} DIFF: {patch}"""
-
 
 def analyze_code_diff(patch, file_ext, filename):
     """Analyze code diff and detect issues using pattern matching"""
