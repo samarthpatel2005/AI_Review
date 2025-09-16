@@ -1,23 +1,28 @@
-Analyze this code diff and find ALL critical issues across all categories:
+Analyze this code diff and provide detailed feedback. For EACH issue found, provide:
 
-🚨 SECURITY: 
-- Hardcoded secrets (passwords, API keys, tokens)
-- Injection vulnerabilities (SQL, XSS, Command injection)
-- Insecure functions and weak cryptography
-- Authentication and authorization flaws
-- File operation security and path traversal
+1. 🚨 **Risk Level & Issue Title** (High/Medium/Low Risk: Brief description)
+2. **Detailed Explanation** (2-3 lines explaining WHY this is problematic)
+3. **Impact Assessment** (What could go wrong if not fixed)
+4. **Specific Fix Suggestion** (Concrete steps to resolve the issue)
 
-⚠️ QUALITY: 
-- Memory leaks and resource management
-- Error handling and exception management
-- Performance issues and inefficient algorithms
-- Thread safety and concurrency issues
-- Infinite loops and null/undefined access
+🚨 SECURITY ANALYSIS:
+- Hardcoded secrets (passwords, API keys, tokens, connection strings)
+- Injection vulnerabilities (SQL, XSS, Command injection, Path traversal)
+- Insecure functions and weak cryptography implementations
+- Authentication bypasses and authorization flaws
+- Unsafe deserialization and file operations
 
-💡 STYLE: 
-- Debug statements and test comments
-- Code smells and unused variables
-- Formatting issues and best practices
-- Documentation and maintainability
+⚠️ QUALITY ANALYSIS:
+- Memory leaks, resource management, and cleanup issues
+- Error handling gaps and exception management problems
+- Performance bottlenecks and inefficient algorithms
+- Thread safety violations and concurrency issues
+- Logic errors, infinite loops, and null/undefined access
 
-Provide specific suggestions for improvement with clear explanations.
+💡 STYLE & MAINTAINABILITY:
+- Debug statements, console logs, and test comments left in code
+- Code smells, unused variables, and dead code
+- Formatting inconsistencies and naming violations
+- Missing documentation and poor code organization
+
+FORMAT: Each issue should be 3-4 lines total with clear actionable suggestions.

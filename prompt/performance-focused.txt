@@ -1,0 +1,22 @@
+⚡ PERFORMANCE-FOCUSED CODE REVIEW
+
+Analyze ONLY performance bottlenecks and optimization opportunities. For each issue:
+
+1. ⚡ **Performance Impact** (Critical/High/Medium: Performance problem description)
+2. **Performance Metrics** (Estimated impact on speed, memory, or resources)
+3. **Root Cause Analysis** (Why this code is inefficient or resource-heavy)
+4. **Optimization Strategy** (Specific performance improvements with measurable benefits)
+
+🚀 FOCUS ON THESE PERFORMANCE AREAS:
+- Algorithm complexity and inefficient loops (O(n²) vs O(n log n))
+- Memory leaks, excessive allocations, and garbage collection pressure
+- Database query optimization and N+1 query problems
+- Network calls, API efficiency, and caching opportunities
+- Resource management (file handles, connections, threads)
+- CPU-intensive operations and blocking I/O
+- String concatenation and data structure efficiency
+- Lazy loading and unnecessary computations
+
+🎯 PROVIDE: Specific metrics (e.g., "reduces from O(n²) to O(n log n)"), alternative algorithms, caching strategies
+
+FORMAT: 3-4 lines per issue with quantifiable performance improvements and actionable optimization techniques.

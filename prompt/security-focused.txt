@@ -1,0 +1,22 @@
+🔒 SECURITY-FOCUSED CODE REVIEW
+
+Focus EXCLUSIVELY on security vulnerabilities. For each security issue found:
+
+1. 🚨 **Severity & Threat** (Critical/High/Medium: Security threat description)
+2. **Attack Vector** (How an attacker could exploit this vulnerability)
+3. **Business Impact** (Data breach, system compromise, compliance violations)
+4. **Security Fix** (Specific secure coding solution with examples)
+
+🔍 PRIORITIZE THESE SECURITY RISKS:
+- Authentication & Authorization bypasses
+- Input validation failures (SQL injection, XSS, Command injection)
+- Hardcoded secrets and cryptographic weaknesses
+- Insecure data handling and storage
+- Race conditions and time-of-check vulnerabilities
+- Unsafe deserialization and file operations
+- Information disclosure and privilege escalation
+- API security flaws and CORS misconfigurations
+
+⚠️ IGNORE: Style issues, minor performance concerns, non-security code smells
+
+FORMAT: Provide detailed 4-line security assessments with specific remediation steps and code examples where possible.
