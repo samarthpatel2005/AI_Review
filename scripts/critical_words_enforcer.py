@@ -29,6 +29,7 @@ import json
 import requests
 import re
 from collections import defaultdict
+from datetime import datetime
 
 
 # STRICT CONFIGURATION - CUSTOMIZE THESE VALUES
@@ -116,6 +117,9 @@ def main():
         
         # Analyze files for critical words
         analysis_result = analyze_files_for_critical_words(files_data)
+        
+        # Generate and save report files
+        generate_report_files(analysis_result, repo, pr_number)
         
         # Generate and post report
         post_analysis_report(analysis_result, repo, pr_number, headers)
@@ -283,6 +287,84 @@ def find_critical_words_in_text(comment_text, filename, line_number):
                 })
     
     return critical_words_by_category
+
+
+def generate_report_files(analysis_result, repo, pr_number):
+    """Generate report files for GitHub Actions artifacts"""
+    total_critical_words = analysis_result['total_critical_words']
+    total_comments = analysis_result['total_comments'] 
+    critical_words_found = analysis_result['critical_words_found']
+    file_analysis = analysis_result['file_analysis']
+    has_critical_words = analysis_result['has_critical_words']
+    
+    # Generate text report
+    report_lines = [
+        "=" * 60,
+        "🚨 CRITICAL WORDS ENFORCER REPORT",
+        "=" * 60,
+        f"Repository: {repo}",
+        f"PR Number: {pr_number}",
+        f"Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}",
+        "",
+        f"📊 SUMMARY:",
+        f"  Total Comments Analyzed: {total_comments}",
+        f"  Critical Words Found: {total_critical_words}",
+        f"  Result: {'❌ FAILED' if has_critical_words else '✅ PASSED'}",
+        ""
+    ]
+    
+    if critical_words_found:
+        report_lines.extend([
+            "🚨 CRITICAL WORDS BY CATEGORY:",
+            ""
+        ])
+        
+        for category, words_list in critical_words_found.items():
+            if words_list:
+                report_lines.append(f"📂 {category.upper().replace('_', ' ')}:")
+                for word_info in words_list:
+                    report_lines.append(f"  - '{word_info['word']}' in {word_info['file']}:{word_info['line']}")
+                    report_lines.append(f"    Context: {word_info['context']}")
+                report_lines.append("")
+    
+    if file_analysis:
+        report_lines.extend([
+            "📄 FILES ANALYZED:",
+            ""
+        ])
+        
+        for filename, file_result in file_analysis.items():
+            status_icon = "🚨" if file_result['critical_words_count'] > 0 else "✅"
+            report_lines.append(f"{status_icon} {filename}")
+            report_lines.append(f"   Comments: {file_result['comments_count']}")
+            report_lines.append(f"   Critical Words: {file_result['critical_words_count']}")
+            report_lines.append("")
+    
+    # Write text report
+    with open('critical-words-report.txt', 'w', encoding='utf-8') as f:
+        f.write('\n'.join(report_lines))
+    
+    # Generate JSON report for programmatic access
+    json_report = {
+        'repository': repo,
+        'pr_number': pr_number,
+        'analysis_date': datetime.now().isoformat(),
+        'summary': {
+            'total_comments': total_comments,
+            'total_critical_words': total_critical_words,
+            'has_critical_words': has_critical_words,
+            'result': 'FAILED' if has_critical_words else 'PASSED'
+        },
+        'critical_words_by_category': dict(critical_words_found),
+        'file_analysis': file_analysis
+    }
+    
+    with open('critical-words-report.json', 'w', encoding='utf-8') as f:
+        json.dump(json_report, f, indent=2, default=str)
+    
+    print(f"📄 Generated report files:")
+    print(f"   - critical-words-report.txt")
+    print(f"   - critical-words-report.json")
 
 
 def post_analysis_report(analysis_result, repo, pr_number, headers):
