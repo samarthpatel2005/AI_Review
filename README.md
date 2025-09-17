@@ -29,29 +29,53 @@ GitHub PR Created/Updated
          ↓
    GitHub Actions Trigger
          ↓
-    ┌─────────────────┬─────────────────┐
-    │   AI Reviewer   │ Critical Words  │
-    │    (Script 1)   │   (Script 2)    │
-    └─────────────────┴─────────────────┘
-         ↓                     ↓
-   AI Analysis            Comment Analysis
-         ↓                     ↓
-    Inline Comments      Status Reports
-         ↓                     ↓
+┌─────────────────────────────────────────────────────────┐
+│                  Stage 1: AI Reviewer                  │
+│        (simple-ai-test.yml + ai_pr_reviewer.py)        │
+│  • Intelligent prompt selection (custom/default)       │
+│  • AI-powered security & quality analysis              │
+│  • Function-level change detection                     │
+│  • Detailed 4-line issue explanations                  │
+└─────────────────────────────────────────────────────────┘
+         ↓ (workflow_run trigger)
+┌─────────────────────────────────────────────────────────┐
+│              Stage 2: Critical Words Enforcer          │
+│     (critical-words-enforcer.yml + critical_words_     │
+│                    enforcer.py)                        │
+│  • Comment-only analysis                               │
+│  • TODO/FIXME/HACK detection                          │
+│  • Quality & security keyword patterns                 │
+│  • Categorized severity reporting                      │
+└─────────────────────────────────────────────────────────┘
+         ↓ (workflow_run trigger)
+┌─────────────────────────────────────────────────────────┐
+│               Stage 3: Summary Generator                │
+│      (generate-summary.yml + generate_pr_summary.py)   │
+│  • Comprehensive analysis report                       │
+│  • Multi-language statistics                           │
+│  • Function-level change tracking                      │
+│  • Automated PR comment with full summary              │
+└─────────────────────────────────────────────────────────┘
+         ↓
       GitHub PR Interface
+    (Inline Comments + Summary Report)
 ```
 
 ## 📜 Scripts Overview
 
 ### 🤖 Script 1: AI PR Reviewer (`scripts/ai_pr_reviewer.py`)
 
-**Purpose**: Comprehensive AI-powered code analysis with intelligent prompt handling
+**Purpose**: Comprehensive AI-powered code analysis with intelligent prompt handling and function-level tracking
 
 **Key Features**:
 - **Intelligent Prompt System**: 
   - Uses custom prompt (`prompt/custom.txt`) when available
   - Falls back to default prompt (`prompt/default.txt`) automatically
   - AI response parsing vs pattern matching based on prompt type
+- **Function-Level Change Detection**:
+  - Tracks functions modified in PR using regex patterns
+  - Analyzes security/quality impacts of function changes
+  - Multi-language function detection (Python, JS, C++, Java, etc.)
 - **Multi-Language Support**: 20+ programming languages
 - **COMPLETE CODE ANALYSIS**: 
   - **Function calls**: `eval()`, `exec()`, `system()`, `subprocess.call()`
@@ -64,6 +88,7 @@ GitHub PR Created/Updated
   - **Database operations**: `DELETE`, `DROP`, `UPDATE` statements
   - **Language-specific security**: XSS, buffer overflows, injection attacks
   - **Comments and documentation**: As part of comprehensive analysis
+- **Enhanced Issue Reporting**: 4-line detailed format with explanations
 - **Inline Suggestions**: GitHub-native suggestion format with auto-apply
 
 **How It Decides Analysis Mode**:
@@ -74,6 +99,18 @@ if custom_prompt_exists and has_content:
 else:
     # Use built-in pattern matching
     analysis_mode = "PATTERN_MATCHING"
+```
+
+**Function Detection Example**:
+```python
+# These patterns detect function changes:
+function_patterns = [
+    r'def\s+(\w+)\s*\(',        # Python: def function_name(
+    r'function\s+(\w+)\s*\(',   # JavaScript: function name(
+    r'(\w+)\s*\([^)]*\)\s*{',   # C/Java: name() {
+    r'func\s+(\w+)\s*\(',       # Go: func name(
+    r'fn\s+(\w+)\s*\(',         # Rust: fn name(
+]
 ```
 
 **Output**: Detailed inline PR comments with 4-line format:
@@ -110,6 +147,41 @@ else:
 
 ## ⚙️ Setup Requirements
 
+### 🔄 Script 3: PR Review Summary Generator (`scripts/generate_pr_summary.py`)
+
+**Purpose**: Comprehensive analysis summarization and automated reporting
+
+**Key Features**:
+- **Multi-Stage Analysis Compilation**: Combines results from AI reviewer and critical words enforcer
+- **Statistical Analysis**: 
+  - File change metrics (additions/deletions/net changes)
+  - Language detection and categorization
+  - Issue severity distribution
+  - Function-level change tracking
+- **Comprehensive Reporting**:
+  - Total issues found by category and severity
+  - Files with issues breakdown
+  - Programming languages detected
+  - Analysis coverage summary
+- **Automated Documentation**: What was actually checked by each stage
+- **GitHub Integration**: Posts summary as PR comment and uploads artifact
+
+**Analysis Capabilities**:
+```python
+# Detects and categorizes:
+languages_detected = detect_programming_languages(files)
+issues_by_severity = categorize_issues(comments)
+functions_analyzed = track_function_changes(files)
+analysis_coverage = summarize_what_was_checked()
+```
+
+**Output**: Comprehensive markdown report with:
+- Changes overview and statistics
+- Language and file type breakdown  
+- AI review analysis results
+- Function-level analysis summary
+- Complete "what was checked" documentation
+
 ### GitHub Secrets Required:
 ```yaml
 AWS_ACCESS_KEY_ID: Your AWS access key
@@ -126,41 +198,72 @@ GITHUB_TOKEN: Auto-provided by GitHub Actions
 ```
 your-repo/
 ├── .github/workflows/
-│   ├── simple-ai-test.yml          # AI Reviewer workflow
-│   └── critical-words-enforcer.yml # Critical words workflow
+│   ├── simple-ai-test.yml          # Stage 1: AI Reviewer workflow
+│   ├── critical-words-enforcer.yml # Stage 2: Critical words workflow  
+│   └── generate-summary.yml        # Stage 3: Summary generator workflow
 ├── scripts/
 │   ├── ai_pr_reviewer.py           # Main AI analysis script
-│   └── critical_words_enforcer.py  # Critical words script
+│   ├── critical_words_enforcer.py  # Critical words script
+│   └── generate_pr_summary.py      # Summary generation script
 ├── prompt/
 │   ├── custom.txt                  # Custom AI prompt (optional)
 │   └── default.txt                 # Default AI prompt (fallback)
 └── requirements.txt                # Python dependencies
 ```
 
-## 🔄 How It Works
+## 🔄 How It Works (Three-Stage Sequential Execution)
 
 ### When a PR is Created/Updated:
 
-#### Step 1: GitHub Actions Trigger
-```yaml
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [ main, master, develop ]
-```
-
-#### Step 2: AI Reviewer Execution
+#### Stage 1: AI Reviewer Execution (`simple-ai-test.yml` trigger)
 1. **Environment Setup**: Validate GitHub and AWS credentials
 2. **Prompt Detection**: Check if `prompt/custom.txt` has content
 3. **Analysis Mode Selection**:
    - **Custom Prompt Available** → Use AI response from AWS Bedrock
    - **Custom Prompt Empty/Missing** → Use pattern matching analysis
-4. **File Analysis**: Process all changed files in the PR
-5. **Comment Generation**: Create detailed inline review comments
-6. **GitHub Integration**: Post comments directly to PR
+4. **Function-Level Tracking**: Detect and track function changes using regex patterns
+5. **File Analysis**: Process all changed files in the PR
+6. **Comment Generation**: Create detailed inline review comments with 4-line format
+7. **GitHub Integration**: Post comments directly to PR
 
-#### Step 3: Critical Words Enforcement
+#### Stage 2: Critical Words Enforcement (`critical-words-enforcer.yml` trigger)
+**Trigger**: Runs automatically after Stage 1 completes via `workflow_run` event
 1. **Comment Extraction**: Parse comments from changed files
+2. **Pattern Matching**: Check against 6 categories of critical words
+3. **Threshold Enforcement**: Report issues when thresholds exceeded
+4. **Status Reporting**: Generate pass/fail status for PR
+
+#### Stage 3: Summary Generation (`generate-summary.yml` trigger)
+**Trigger**: Runs automatically after Stage 2 completes via `workflow_run` event
+
+1. **Data Collection**: Gather PR information, file changes, and review comments
+2. **Analysis Compilation**: Process results from both previous stages
+3. **Statistical Analysis**: 
+   - Calculate change metrics and language distribution
+   - Categorize issues by severity and type
+   - Track function-level changes and impacts
+4. **Report Generation**: Create comprehensive markdown summary
+5. **Documentation**: Include detailed "what was checked" sections
+6. **Delivery**: Post summary as PR comment and upload as artifact
+
+### Sequential Workflow Configuration:
+```yaml
+# Stage 1: simple-ai-test.yml
+on:
+  pull_request: [opened, synchronize, reopened]
+
+# Stage 2: critical-words-enforcer.yml  
+on:
+  workflow_run:
+    workflows: ["AI PR Reviewer"]
+    types: [completed]
+
+# Stage 3: generate-summary.yml
+on:
+  workflow_run:
+    workflows: ["Critical Words Enforcer"] 
+    types: [completed]
+```
 2. **Word Analysis**: Check against categorized critical word lists
 3. **Threshold Evaluation**: Compare findings against configured limits
 4. **Status Reporting**: Update PR status with results

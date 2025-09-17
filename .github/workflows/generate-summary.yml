@@ -1,31 +1,19 @@
-# 🚨 Critical Words Reporter
-# 
-# This workflow REPORTS critical words found in comments without failing the PR
-# Provides clear feedback and suggestions for improvement
-#
-# FEATURES:
-# - Non-blocking analysis: REPORTS when critical words detected
-# - Clear suggestions for fixing issues
-# - Detailed analysis of all comments
-# - Configurable thresholds and word lists
-
-name: Critical Words Enforcer
+name: Generate PR Review Summary
 
 on:
   workflow_run:
-    workflows: ["Enhanced AI PR Review with File-Based Prompts"]
+    workflows: ["Critical Words Enforcer"]
     types: [completed]
     branches: [ main, master, develop ]
 
 jobs:
-  enforce-critical-words:
+  generate-summary:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     permissions:
       pull-requests: write
-      contents: read
-      checks: write
-      statuses: write
+      contents: write
+      checks: read
 
     steps:
     - name: Checkout code
@@ -56,11 +44,18 @@ jobs:
         echo "number=$PR_NUMBER" >> $GITHUB_OUTPUT
         echo "sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
 
-    - name: Critical Words Enforcement Check
+    - name: Generate PR Review Summary
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ steps.pr.outputs.number }}
         GITHUB_SHA: ${{ steps.pr.outputs.sha }}
       run: |
-        python3 scripts/critical_words_enforcer.py
+        python3 scripts/generate_pr_summary.py
+
+    - name: Upload Summary as Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: pr-review-summary-${{ steps.pr.outputs.number }}
+        path: pr-review-summary.md
+        retention-days: 30

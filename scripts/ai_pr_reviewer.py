@@ -480,6 +480,8 @@ def analyze_code_diff(patch, file_ext, filename):
     issues_found = []
     lines = patch.split('\n')
     line_number = 0
+    current_function = None
+    functions_with_issues = []
     
     for line in lines:
         if line.startswith('@@'):
@@ -491,20 +493,72 @@ def analyze_code_diff(patch, file_ext, filename):
             line_number += 1
             line_content = line[1:].strip()
             
+            # Detect function definitions to track function-level changes
+            function_patterns = [
+                r'def\s+(\w+)\s*\(',  # Python
+                r'function\s+(\w+)\s*\(',  # JavaScript
+                r'(\w+)\s*\([^)]*\)\s*{',  # C/C++/Java/C#
+                r'func\s+(\w+)\s*\(',  # Go
+                r'fn\s+(\w+)\s*\(',  # Rust
+                r'sub\s+(\w+)\s*\(',  # Perl
+                r'(\w+)\s*:\s*function',  # Object method
+            ]
+            
+            for pattern in function_patterns:
+                match = re.search(pattern, line_content, re.IGNORECASE)
+                if match:
+                    current_function = match.group(1)
+                    print(f"🔍 Detected function change: {current_function}() at line {line_number}")
+                    break
+            
             # Universal security detection
             security_issues = detect_security_issues(line_content, line_number)
+            if security_issues and current_function:
+                functions_with_issues.append({
+                    'function': current_function,
+                    'line': line_number,
+                    'issues': len(security_issues)
+                })
             issues_found.extend(security_issues)
             
             # Language-specific analysis
             language_issues = detect_language_specific_issues(line_content, line_number, file_ext)
+            if language_issues and current_function:
+                if not any(f['function'] == current_function for f in functions_with_issues):
+                    functions_with_issues.append({
+                        'function': current_function,
+                        'line': line_number,
+                        'issues': len(language_issues)
+                    })
+                else:
+                    for f in functions_with_issues:
+                        if f['function'] == current_function:
+                            f['issues'] += len(language_issues)
             issues_found.extend(language_issues)
             
             # Universal quality issues
             quality_issues = detect_quality_issues(line_content, line_number)
+            if quality_issues and current_function:
+                if not any(f['function'] == current_function for f in functions_with_issues):
+                    functions_with_issues.append({
+                        'function': current_function,
+                        'line': line_number,
+                        'issues': len(quality_issues)
+                    })
+                else:
+                    for f in functions_with_issues:
+                        if f['function'] == current_function:
+                            f['issues'] += len(quality_issues)
             issues_found.extend(quality_issues)
             
         elif line.startswith(' '):
             line_number += 1
+    
+    # Log functions with issues
+    if functions_with_issues:
+        print(f"📊 Functions with issues in {filename}:")
+        for func_info in functions_with_issues:
+            print(f"  - {func_info['function']}(): {func_info['issues']} issue(s) at line {func_info['line']}")
     
     return issues_found
 
