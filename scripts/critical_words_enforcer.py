@@ -168,6 +168,11 @@ def analyze_files_for_critical_words(files_data):
         
         if file_result['critical_words_count'] > 0:
             print(f"  🚨 {file_result['critical_words_count']} critical words found in {file_result['comments_count']} comments")
+            # Show details of critical words found in this file
+            for category, words_list in file_result['critical_words_by_category'].items():
+                if words_list:
+                    for word_info in words_list[:3]:  # Show first 3 per file
+                        print(f"    - Line {word_info['line']}: '{word_info['word']}' in \"{word_info['context'][:50]}...\"")
         else:
             print(f"  ✅ Clean - {file_result['comments_count']} comments analyzed")
     
@@ -181,7 +186,20 @@ def analyze_files_for_critical_words(files_data):
     print(f"📏 Threshold for failure: {CRITICAL_THRESHOLD}")
     
     if has_critical_words:
-        print(f"❌ RESULT: FAILED - Critical words detected!")
+        print(f"❌ RESULT: CRITICAL WORDS DETECTED!")
+        print(f"\n🚨 DETAILED BREAKDOWN:")
+        
+        # Show detailed breakdown by category
+        for category, words_list in critical_words_found.items():
+            if words_list:
+                print(f"\n📂 {category.upper().replace('_', ' ')} ({len(words_list)} found):")
+                for word_info in words_list[:5]:  # Show first 5 per category
+                    print(f"  🔸 '{word_info['word']}' in {word_info['file']}:{word_info['line']}")
+                    print(f"     Context: \"{word_info['context']}\"")
+                if len(words_list) > 5:
+                    print(f"  ... and {len(words_list) - 5} more")
+        
+        print(f"\n🚨 These {total_critical_words} critical words need attention!")
     else:
         print(f"✅ RESULT: PASSED - No critical words found!")
     
@@ -465,18 +483,21 @@ def set_commit_status(analysis_result, repo, github_sha, headers):
     total_comments = analysis_result['total_comments'] 
     has_critical_words = analysis_result['has_critical_words']
     
+    # Always set status to success but with different descriptions
     if has_critical_words:
         status_response = requests.post(
             f"https://api.github.com/repos/{repo}/statuses/{github_sha}",
             headers=headers,
             json={
                 'state': 'success',
-                'description': f'REPORTED: {total_critical_words} critical words found in comments. Review recommended.',
+                'description': f'⚠️ FOUND {total_critical_words} critical words in comments - Review needed!',
                 'context': 'Critical Words Enforcer'
             }
         )
         print("✅ Status set to SUCCESS with warning - merge allowed")
-        print(f"⚠️ REPORTED: {total_critical_words} critical words found for review!")
+        print(f"🚨🚨🚨 CRITICAL WORDS DETECTED! 🚨🚨🚨")
+        print(f"⚠️ FOUND: {total_critical_words} critical words found in {total_comments} comments!")
+        print(f"📋 These issues have been reported in the PR comments for review.")
         print("✅ Action completed successfully (reported findings)")
     else:
         status_response = requests.post(
@@ -484,12 +505,12 @@ def set_commit_status(analysis_result, repo, github_sha, headers):
             headers=headers,
             json={
                 'state': 'success',
-                'description': f'PASSED: Clean comments - {total_comments} analyzed, no critical words found.',
+                'description': f'✅ Clean - No critical words found in {total_comments} comments',
                 'context': 'Critical Words Enforcer'
             }
         )
-        print("✅ Status set to SUCCESS - merge allowed")
-        print(f"🎉 ENFORCER PASSED: Clean comments detected!")
+        print("✅ Status set to SUCCESS - no critical words found")
+        print(f"✅ CLEAN: All {total_comments} comments analyzed - no issues found!")
         print("✅ Action completed successfully")
 
 

@@ -12,27 +12,30 @@ This file tests that our three-stage workflow system is properly configured:
 ```python
 def test_function():
     """This function should be detected by our analyzer"""
-    # TODO: This should trigger critical words enforcer
+    # TODO: This should trigger critical words enforcer and show in output
     password = "hardcoded_secret"  # This should trigger AI reviewer
     return password
 
 class TestClass:
     def another_function(self, data):
         """Another test function"""
-        # HACK: Quick fix needed
+        # HACK: Quick fix needed - this should be reported with line numbers
         eval(data)  # Security issue for AI reviewer
         return True
 ```
 
 ```javascript
 function testJavaScript() {
-    // FIXME: Needs proper validation
+    // FIXME: Needs proper validation - should show detailed output
     var secret = "api_key_123";
     document.write(userInput); // XSS vulnerability
 }
 ```
 
-## Expected Results
-- AI Reviewer should detect hardcoded secrets and eval() usage
-- Critical Words Enforcer should find TODO, HACK, FIXME comments
-- Summary Generator should create comprehensive report
+## Expected Results After Fixes
+- ✅ AI Reviewer should detect hardcoded secrets and eval() usage
+- ✅ Critical Words Enforcer should find TODO, HACK, FIXME comments with:
+  - **Detailed console output** showing line numbers and contexts
+  - **PR comment** with breakdown by category
+  - **Visible status** in GitHub Actions
+- ✅ Summary Generator should run after both complete and create comprehensive report
